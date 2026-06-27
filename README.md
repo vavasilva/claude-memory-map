@@ -4,7 +4,7 @@ Visualizador **mapa mental** das memórias do Claude Code. Plugin que sobe um se
 em `localhost` e mostra, num grafo interativo e bonito, **de onde vem cada instrução**
 que o agente carrega num projeto.
 
-![Memory Map — mapa mental das memórias do Claude Code](docs/screenshot.png)
+![Memory Map — mapa mental das memórias do Claude Code](docs/screenshot-v2.png)
 
 Lê ao vivo as três fontes de memória e agrupa por seção de markdown
 (cada `##`/`###` vira um **tópico**, cada bullet vira uma **folha**):
