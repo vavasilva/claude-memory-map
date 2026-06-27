@@ -22,7 +22,9 @@ Lê ao vivo as três fontes de memória e agrupa por seção de markdown
 - **Busca no conteúdo** — alcança o texto *dentro* dos arquivos de memória, não só os títulos no índice: um termo que só aparece num arquivo (ex. `v119`) ainda acende o nó. Resolvido no servidor (`/search`, com cache por mtime).
 - **Lista de resultados** — ao buscar, um painel abaixo do campo lista o que casou (índice + conteúdo); clicar num item abre a memória direto no painel lateral, sem caçar o nó aceso no mapa.
 - **Clique numa folha pra ler** o texto completo no painel lateral; folhas da `MEMORY.md`
-  que apontam pra um arquivo (`↗`) carregam o **conteúdo do arquivo** referenciado.
+  que apontam pra um arquivo (`↗`) carregam o **conteúdo do arquivo** referenciado. O termo
+  buscado fica **destacado** no arquivo aberto, acompanhando curinga (`tcm*depl` marca "tcm" e
+  "depl") e acento (`renovacao` marca "renovação").
 - **Destaque por fonte** (hover), **recolher/expandir tópico** (clique), **tema claro/escuro**.
 - **Seletor de projetos** — lista todos os projetos com memória em `~/.claude/projects/`.
 - **Sempre fresco** — relê os arquivos a cada carregamento.
