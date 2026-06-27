@@ -561,31 +561,49 @@ function clearFind(box){
 }
 function highlightFind(box, q){
   clearFind(box);
-  if (!q) return 0;
-  const ql = q.toLowerCase();
+  // destaca os PEDAÇOS literais do termo (curinga vira separador) e ignora acento, casando a busca
+  // do mapa: "tcm*depl" -> marca "tcm" e "depl"; "renovacao" -> marca "renovação". norm() preserva
+  // o comprimento em texto precomposto, então os offsets do <mark> batem no texto original.
+  const tokens = [...new Set(norm(q).split(/[*?]+/).filter(t => t.length >= 2))];
+  if (!tokens.length) return 0;
   const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT, {
     acceptNode(n){
       if (!n.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
       for (let p = n.parentNode; p && p !== box; p = p.parentNode){
         if (p.tagName && p.tagName.toLowerCase() === 'svg') return NodeFilter.FILTER_REJECT;  // não mexe no mermaid
       }
-      return n.nodeValue.toLowerCase().includes(ql) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      const c = norm(n.nodeValue);
+      return tokens.some(t => c.includes(t)) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
     }
   });
   const targets = [];
   while (walker.nextNode()) targets.push(walker.currentNode);
   let count = 0;
   targets.forEach(node => {
-    const text = node.nodeValue, low = text.toLowerCase(), frag = document.createDocumentFragment();
-    let idx = 0, m;
-    while ((m = low.indexOf(ql, idx)) !== -1){
-      if (m > idx) frag.appendChild(document.createTextNode(text.slice(idx, m)));
-      const mark = document.createElement('mark');
-      mark.className = 'find'; mark.textContent = text.slice(m, m + ql.length);
-      frag.appendChild(mark); count++;
-      idx = m + ql.length;
+    const text = node.nodeValue, cmp = norm(text);
+    let ranges = [];
+    tokens.forEach(t => {
+      let idx = 0, m;
+      while ((m = cmp.indexOf(t, idx)) !== -1){ ranges.push([m, m + t.length]); idx = m + t.length; }
+    });
+    if (!ranges.length) return;
+    ranges.sort((a, b) => a[0] - b[0]);                 // mescla intervalos sobrepostos/adjacentes
+    const merged = [ranges[0].slice()];
+    for (let k = 1; k < ranges.length; k++){
+      const last = merged[merged.length - 1];
+      if (ranges[k][0] <= last[1]) last[1] = Math.max(last[1], ranges[k][1]);
+      else merged.push(ranges[k].slice());
     }
-    if (idx < text.length) frag.appendChild(document.createTextNode(text.slice(idx)));
+    const frag = document.createDocumentFragment();
+    let pos = 0;
+    merged.forEach(([s, e]) => {
+      if (s > pos) frag.appendChild(document.createTextNode(text.slice(pos, s)));
+      const mark = document.createElement('mark');
+      mark.className = 'find'; mark.textContent = text.slice(s, e);
+      frag.appendChild(mark); count++;
+      pos = e;
+    });
+    if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)));
     node.parentNode.replaceChild(frag, node);
   });
   return count;
