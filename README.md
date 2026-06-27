@@ -20,6 +20,7 @@ Lê ao vivo as três fontes de memória e agrupa por seção de markdown
 - **Mapa mental** force-free de duas colunas, conectores Bézier — sem dependências (stdlib only).
 - **Busca com curinga** — filtra o mapa em tempo real; `*` = qualquer trecho, `?` = 1 caractere, em qualquer posição. Ex.: `auth*token` casa "auth…token" em qualquer ponto; `te?t` casa "test"/"text". Sem curinga, é busca por trecho (substring). Ignora acentuação — `renovacao` acha "renovação".
 - **Busca no conteúdo** — alcança o texto *dentro* dos arquivos de memória, não só os títulos no índice: um termo que só aparece num arquivo (ex. `v119`) ainda acende o nó. Resolvido no servidor (`/search`, com cache por mtime).
+- **Lista de resultados** — ao buscar, um painel abaixo do campo lista o que casou (índice + conteúdo); clicar num item abre a memória direto no painel lateral, sem caçar o nó aceso no mapa.
 - **Clique numa folha pra ler** o texto completo no painel lateral; folhas da `MEMORY.md`
   que apontam pra um arquivo (`↗`) carregam o **conteúdo do arquivo** referenciado.
 - **Destaque por fonte** (hover), **recolher/expandir tópico** (clique), **tema claro/escuro**.
