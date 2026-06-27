@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# regras de ambiente do context-mode (= ~/.claude/CLAUDE.md global), não fazem parte do plugin
+/CLAUDE.md
