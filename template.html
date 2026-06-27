@@ -187,6 +187,14 @@
     font-size:11.5px; background:var(--mono-bg); border:1px solid var(--border); border-radius:10px; padding:12px;}
   .pfilelabel{font-size:10.5px; text-transform:uppercase; letter-spacing:.08em; font-weight:600;
     color:var(--text-3); margin:0 0 8px;}
+  .pfind{position:sticky; top:0; display:flex; align-items:center; gap:8px; padding:8px 0 10px;
+    background:var(--surface); z-index:2; margin-bottom:4px;}
+  .pfind input{flex:1; font-family:"Geist",sans-serif; font-size:12px; padding:6px 10px;
+    border:1px solid var(--border); border-radius:8px; background:var(--surface-2); color:var(--text); outline:none;}
+  .pfind input:focus{border-color:var(--text-3);}
+  #pfindct{font-size:11px; font-family:"Geist Mono",monospace; color:var(--text-3); min-width:42px; text-align:right;}
+  mark.find{background:oklch(0.85 0.16 95); color:#1a1a1a; border-radius:3px; padding:0 1px;}
+  mark.find.cur{background:oklch(0.7 0.19 45); color:#fff;}
 </style>
 </head>
 <body>
@@ -215,6 +223,10 @@
     </div>
     <div class="pbody">
       <p id="ptext"></p>
+      <div class="pfind" id="pfind" hidden>
+        <input id="pfindinput" type="search" placeholder="buscar no arquivo… (Enter = próximo)" autocomplete="off" spellcheck="false">
+        <span id="pfindct"></span>
+      </div>
       <p class="pfilelabel" id="pfilelabel" hidden>conteúdo do arquivo</p>
       <div id="pfile" class="md" hidden></div>
     </div>
@@ -474,19 +486,79 @@ function renderMermaid(container){
   }).catch(() => blocks.forEach(b => b.classList.add('fallback')));
 }
 
+// ---- Busca dentro do arquivo aberto (highlight + navegação) ----
+function clearFind(box){
+  box.querySelectorAll('mark.find').forEach(m => m.replaceWith(document.createTextNode(m.textContent)));
+  box.normalize();
+}
+function highlightFind(box, q){
+  clearFind(box);
+  if (!q) return 0;
+  const ql = q.toLowerCase();
+  const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT, {
+    acceptNode(n){
+      if (!n.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+      for (let p = n.parentNode; p && p !== box; p = p.parentNode){
+        if (p.tagName && p.tagName.toLowerCase() === 'svg') return NodeFilter.FILTER_REJECT;  // não mexe no mermaid
+      }
+      return n.nodeValue.toLowerCase().includes(ql) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    }
+  });
+  const targets = [];
+  while (walker.nextNode()) targets.push(walker.currentNode);
+  let count = 0;
+  targets.forEach(node => {
+    const text = node.nodeValue, low = text.toLowerCase(), frag = document.createDocumentFragment();
+    let idx = 0, m;
+    while ((m = low.indexOf(ql, idx)) !== -1){
+      if (m > idx) frag.appendChild(document.createTextNode(text.slice(idx, m)));
+      const mark = document.createElement('mark');
+      mark.className = 'find'; mark.textContent = text.slice(m, m + ql.length);
+      frag.appendChild(mark); count++;
+      idx = m + ql.length;
+    }
+    if (idx < text.length) frag.appendChild(document.createTextNode(text.slice(idx)));
+    node.parentNode.replaceChild(frag, node);
+  });
+  return count;
+}
+let findMarks = [], findIdx = 0;
+function runFind(q){
+  const box = $('#pfile');
+  const n = highlightFind(box, q.trim());
+  findMarks = Array.from(box.querySelectorAll('mark.find'));
+  findIdx = 0;
+  $('#pfindct').textContent = q.trim() ? (n ? `1/${n}` : '0') : '';
+  if (findMarks.length) setCur(0);
+}
+function setCur(i){
+  if (!findMarks.length) return;
+  findMarks.forEach(m => m.classList.remove('cur'));
+  findIdx = (i + findMarks.length) % findMarks.length;
+  const m = findMarks[findIdx];
+  m.classList.add('cur');
+  m.scrollIntoView({block: 'center', behavior: 'smooth'});
+  $('#pfindct').textContent = `${findIdx + 1}/${findMarks.length}`;
+}
+
 function openPanel(el){
   $('#psrc').textContent = el.dataset.src;
   $('#ptopic').textContent = el.dataset.topic;
   $('#ptext').textContent = el.dataset.text;
-  const box = $('#pfile'), lbl = $('#pfilelabel'), ref = el.dataset.ref;
+  const box = $('#pfile'), lbl = $('#pfilelabel'), pfind = $('#pfind'), ref = el.dataset.ref;
   if (ref){
-    box.hidden = false; lbl.hidden = false; box.textContent = 'carregando…';
+    box.hidden = false; lbl.hidden = false; pfind.hidden = false; box.textContent = 'carregando…';
     fetch('/file?p=' + encodeURIComponent(ref))
       .then(r => r.ok ? r.text() : Promise.reject())
-      .then(t => { box.innerHTML = mdToHtml(t); renderMermaid(box); })
-      .catch(() => box.textContent = '(não foi possível ler o arquivo — disponível só rodando via serve.py)');
+      .then(t => {
+        box.innerHTML = mdToHtml(t); renderMermaid(box);
+        const pre = state.query.trim();            // pré-preenche com a busca do mapa, se houver
+        $('#pfindinput').value = pre; runFind(pre);
+      })
+      .catch(() => { box.textContent = '(não foi possível ler o arquivo — disponível só rodando via serve.py)'; $('#pfindct').textContent = ''; });
   } else {
-    box.hidden = true; lbl.hidden = true;
+    box.hidden = true; lbl.hidden = true; pfind.hidden = true;
+    $('#pfindinput').value = ''; $('#pfindct').textContent = '';
   }
   $('#panel').classList.add('open');
   $('#panel').setAttribute('aria-hidden', 'false');
@@ -536,6 +608,12 @@ function init(){
   const search = $('#search');
   search.addEventListener('input', () => { state.query = search.value; applySearch(); });
   setInterval(poll, 5000);
+
+  const pfi = $('#pfindinput');
+  pfi.addEventListener('input', () => runFind(pfi.value));
+  pfi.addEventListener('keydown', e => {
+    if (e.key === 'Enter'){ e.preventDefault(); setCur(findIdx + (e.shiftKey ? -1 : 1)); }
+  });
 }
 init();
 </script>
