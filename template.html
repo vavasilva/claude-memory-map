@@ -207,7 +207,7 @@
     </div>
     <div class="segmented" id="projects"></div>
     <div class="tools">
-      <input id="search" type="search" placeholder="buscar…" autocomplete="off" spellcheck="false">
+      <input id="search" type="search" placeholder="buscar… (use * e ?)" autocomplete="off" spellcheck="false">
       <button class="theme-toggle" id="theme">Tema claro</button>
     </div>
   </div>
@@ -363,20 +363,32 @@ function renderLegend(){
 
 function setActive(b){ $('#canvas').dataset.active = (b == null ? 'none' : b); }
 
+// busca do mapa: substring por padrão; '*' (qualquer trecho) e '?' (1 caractere) ativam glob.
+// '*' nas pontas solta a âncora: foo* = começa com foo, *foo = termina em foo, *foo* = contém.
+function globTester(q){
+  if (!/[*?]/.test(q)) return s => s.includes(q);
+  let body = q.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+  body = (q.startsWith('*') ? '' : '^') + body + (q.endsWith('*') ? '' : '$');
+  try { const re = new RegExp(body); return s => re.test(s); }
+  catch { return s => s.includes(q); }   // regex inválida -> cai pra substring
+}
+
 function applySearch(){
   const q = state.query.trim().toLowerCase();
   const cv = $('#canvas');
   cv.querySelectorAll('.dim, .hit').forEach(e => e.classList.remove('dim', 'hit'));
   if (!q) return;
+  const test = globTester(q);
   const hitKeys = new Set();
   cv.querySelectorAll('.leaf').forEach(l => {
-    const hay = (l.dataset.text + ' ' + l.dataset.topic).toLowerCase();
-    if (hay.includes(q)){ l.classList.add('hit'); hitKeys.add(l.dataset.topickey); }
+    if (test(l.dataset.text.toLowerCase()) || test(l.dataset.topic.toLowerCase())){
+      l.classList.add('hit'); hitKeys.add(l.dataset.topickey);
+    }
     else l.classList.add('dim');
   });
   cv.querySelectorAll('.topic').forEach(t => {
     const name = t.querySelector('.tname').textContent.toLowerCase();
-    if (name.includes(q) || hitKeys.has(t.dataset.key)) t.classList.add('hit');
+    if (test(name) || hitKeys.has(t.dataset.key)) t.classList.add('hit');
     else t.classList.add('dim');
   });
 }
