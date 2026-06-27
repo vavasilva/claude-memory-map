@@ -14,6 +14,7 @@ import re
 import sys
 import json
 import pathlib
+import functools
 import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
@@ -77,10 +78,36 @@ def enc_path(p):
     return re.sub(r"[/.]", "-", str(pathlib.Path(p).resolve()))
 
 
+@functools.lru_cache(maxsize=None)
+def proj_root(enc):
+    """Recupera o cwd real de um projeto a partir do campo `cwd` dos transcripts .jsonl.
+    O nome do dir codificado (/ e . viram -) é irreversível; o cwd gravado nas sessões é a
+    fonte confiável. Retorna Path existente ou None. (cwd de um projeto é imutável -> cache.)"""
+    d = PROJECTS_DIR / enc
+    if not d.is_dir():
+        return None
+    for s in sorted(d.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            with s.open(encoding="utf-8", errors="replace") as fh:
+                for line in fh:                       # ponytail: para na 1a linha com cwd
+                    if '"cwd"' not in line:
+                        continue
+                    try:
+                        cwd = json.loads(line).get("cwd")
+                    except Exception:
+                        continue
+                    if cwd:
+                        root = pathlib.Path(cwd).expanduser()
+                        return root if root.exists() else None
+        except Exception:
+            continue
+    return None
+
+
 def discover():
-    """Monta a lista de projetos. Projeto atual (cwd) vem primeiro e ganha as 3 fontes;
-    os demais ganham global + MEMORY.md (o CLAUDE.md do repo deles não é resolvível pelo
-    nome codificado do diretório)."""
+    """Monta a lista de projetos. O projeto atual (cwd) vem primeiro. Cada projeto ganha
+    global + CLAUDE.md do repo (quando resolvível) + MEMORY.md. O path real do repo vem do
+    campo `cwd` dos transcripts .jsonl, já que o nome do dir codificado é irreversível."""
     cwd = pathlib.Path.cwd().resolve()
     cwd_enc = enc_path(cwd)
     mems = {}
@@ -92,16 +119,16 @@ def discover():
     projects = []
     for e in order:
         mem = mems[e]
-        current = (e == cwd_enc)
-        if current:
-            name = cwd.name
-            dirlabel = str(cwd).replace(str(HOME), "~")
-        else:
+        root = cwd if e == cwd_enc else proj_root(e)
+        if root is not None:
+            name = root.name
+            dirlabel = str(root).replace(str(HOME), "~")
+        else:  # repo não resolvível (sem transcript ou movido): cai no nome do dir codificado
             name = e.split("-Code-")[-1] if "-Code-" in e else e.strip("-").split("-")[-1]
             dirlabel = "~/.claude/projects/" + name
         sources = [make_source(0, "~/.claude/CLAUDE.md", "global do usuário", "user", GLOBAL_MD)]
-        if current and (cwd / "CLAUDE.md").exists():
-            sources.append(make_source(1, "./CLAUDE.md", "projeto / time", "claude", cwd / "CLAUDE.md"))
+        if root is not None and (root / "CLAUDE.md").exists():
+            sources.append(make_source(1, "./CLAUDE.md", "projeto / time", "claude", root / "CLAUDE.md"))
         sources.append(make_source(2, "./MEMORY.md", "acumulada pelo agente", "memory", mem, base=mem.parent))
         projects.append({"name": name, "dir": dirlabel, "sources": sources})
 
