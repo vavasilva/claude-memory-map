@@ -4,6 +4,8 @@ Visualizador **mapa mental** das memórias do Claude Code. Plugin que sobe um se
 em `localhost` e mostra, num grafo interativo e bonito, **de onde vem cada instrução**
 que o agente carrega num projeto.
 
+![Memory Map — mapa mental das memórias do Claude Code](docs/screenshot.png)
+
 Lê ao vivo as três fontes de memória e agrupa por seção de markdown
 (cada `##`/`###` vira um **tópico**, cada bullet vira uma **folha**):
 
@@ -50,15 +52,17 @@ python3 /caminho/para/claude-memory-map/serve.py
 ## Como funciona
 
 - `serve.py` — servidor `http.server` (stdlib). Detecta o projeto atual pelo diretório de
-  trabalho, descobre os demais via `~/.claude/projects/*/memory/MEMORY.md`, parseia e serve.
+  trabalho, descobre os demais via `~/.claude/projects/*/memory/MEMORY.md` (recuperando o
+  caminho real de cada repo pelo `cwd` gravado nos transcripts `.jsonl`), parseia e serve.
   O endpoint `/file` só entrega arquivos dentro de `~/.claude` (lê o conteúdo das folhas da memória).
 - `template.html` — o design (markup + layout + interações). O `serve.py` injeta os dados no
   lugar de `__DATA__` a cada request.
 
 ## Limitações conhecidas
 
-- O `./CLAUDE.md` do repo só é resolvido pro **projeto atual** (cwd). Outros projetos no seletor
-  mostram global + `MEMORY.md` — o caminho do repo não é recuperável do nome codificado do diretório.
+- O `./CLAUDE.md` de outros projetos é resolvido pelo `cwd` gravado nos transcripts de sessão
+  (`~/.claude/projects/*/*.jsonl`); projetos sem transcript — ou cujo repo foi movido/apagado —
+  caem pro fallback (global + `MEMORY.md` apenas).
 - Requer navegador moderno (`oklch()`, `color-mix()`). Fontes Geist via Google Fonts (cai pro
   system font sem internet).
 
