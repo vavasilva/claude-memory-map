@@ -82,6 +82,7 @@
   #results .rhead{padding:6px 10px 4px; font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--text-3);}
   .result{display:flex; gap:9px; align-items:flex-start; padding:7px 10px; border-radius:8px; cursor:pointer;}
   .result:hover{background:color-mix(in oklab, var(--bc) 15%, var(--surface));}
+  .result.sel{background:color-mix(in oklab, var(--bc) 24%, var(--surface)); outline:1.5px solid var(--bc); outline-offset:-1px;}
   .result .dot{width:8px; height:8px; border-radius:50%; background:var(--bc); margin-top:4px; flex:none;}
   .result .rtext{font-size:12.5px; line-height:1.35; color:var(--text); overflow:hidden;}
   .result .rtopic{font-size:11px; color:var(--text-3); margin-top:2px;}
@@ -408,8 +409,11 @@ function applySearch(){
 }
 
 // lista de resultados clicável (abaixo da busca): cada folha "hit" vira um item que reabre o painel.
+// teclado: ↑/↓ movem `resultSel`, Enter abre o selecionado (ver keydown do #search).
+let resultSel = -1;
 function updateResults(){
   const box = $('#results');
+  resultSel = -1;
   if (!state.query.trim()){ box.hidden = true; box.innerHTML = ''; return; }
   const hits = [...$('#canvas').querySelectorAll('.leaf.hit')];
   box.innerHTML = hits.length
@@ -689,14 +693,38 @@ function init(){
   });
 
   $('#pclose').addEventListener('click', closePanel);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
-
   const search = $('#search');
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape'){ closePanel(); return; }
+    // "/" ou Cmd/Ctrl+K foca a busca — exceto se já está digitando num campo
+    const typing = /^(input|textarea)$/i.test(document.activeElement && document.activeElement.tagName);
+    if (!typing && (e.key === '/' || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k'))){
+      e.preventDefault(); search.focus(); search.select();
+    }
+  });
+
   let searchTimer = null;
   search.addEventListener('input', () => {
     state.query = search.value; applySearch();                       // índice (instantâneo)
     clearTimeout(searchTimer);
     if (state.query.trim()) searchTimer = setTimeout(contentSearch, 200);  // conteúdo (server)
+  });
+  search.addEventListener('keydown', e => {                          // ↑/↓ navega a lista, Enter abre, Esc limpa
+    const items = [...$('#results').querySelectorAll('.result')];
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && items.length){
+      e.preventDefault();
+      const dir = e.key === 'ArrowDown' ? 1 : -1;
+      resultSel = resultSel < 0 ? (dir === 1 ? 0 : items.length - 1)
+                                : Math.max(0, Math.min(resultSel + dir, items.length - 1));
+      items.forEach((it, i) => it.classList.toggle('sel', i === resultSel));
+      items[resultSel].scrollIntoView({block: 'nearest'});
+    } else if (e.key === 'Enter' && items.length){
+      e.preventDefault();
+      (items[resultSel] || items[0]).click();
+    } else if (e.key === 'Escape' && search.value){
+      search.value = ''; state.query = ''; applySearch();
+      e.stopPropagation();                                           // não deixa o Esc global fechar o painel
+    }
   });
   setInterval(poll, 5000);
 
