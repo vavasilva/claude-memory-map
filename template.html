@@ -363,12 +363,11 @@ function renderLegend(){
 
 function setActive(b){ $('#canvas').dataset.active = (b == null ? 'none' : b); }
 
-// busca do mapa: substring por padrão; '*' (qualquer trecho) e '?' (1 caractere) ativam glob.
-// '*' nas pontas solta a âncora: foo* = começa com foo, *foo = termina em foo, *foo* = contém.
+// busca do mapa: substring por padrão; '*' (qualquer trecho) e '?' (1 caractere) viram glob
+// não-ancorado, casando em qualquer posição — ex.: auth*token acha "auth…token" no meio do texto.
 function globTester(q){
   if (!/[*?]/.test(q)) return s => s.includes(q);
-  let body = q.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
-  body = (q.startsWith('*') ? '' : '^') + body + (q.endsWith('*') ? '' : '$');
+  const body = q.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
   try { const re = new RegExp(body); return s => re.test(s); }
   catch { return s => s.includes(q); }   // regex inválida -> cai pra substring
 }
