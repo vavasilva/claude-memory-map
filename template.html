@@ -71,10 +71,20 @@
     border:1px solid var(--border); background:var(--surface); color:var(--text-2);
     font-family:"Geist",sans-serif; font-size:12.5px; padding:7px 13px; border-radius:9px; cursor:pointer; white-space:nowrap;
   }
-  .tools{display:flex; align-items:center; gap:10px;}
+  .tools{display:flex; align-items:center; gap:10px; position:relative;}
   #search{font-family:"Geist",sans-serif; font-size:12.5px; padding:7px 12px; border-radius:9px;
     border:1px solid var(--border); background:var(--surface); color:var(--text); width:170px; outline:none;}
   #search:focus{border-color:var(--text-3);}
+  /* ---- Resultados da busca (dropdown clicável) ---- */
+  #results{position:absolute; top:calc(100% + 7px); right:0; width:340px; max-width:80vw; max-height:54vh;
+    overflow-y:auto; background:var(--surface); border:1px solid var(--border); border-radius:11px; padding:4px;
+    box-shadow:0 10px 30px rgba(0,0,0,.34); z-index:60;}
+  #results .rhead{padding:6px 10px 4px; font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--text-3);}
+  .result{display:flex; gap:9px; align-items:flex-start; padding:7px 10px; border-radius:8px; cursor:pointer;}
+  .result:hover{background:color-mix(in oklab, var(--bc) 15%, var(--surface));}
+  .result .dot{width:8px; height:8px; border-radius:50%; background:var(--bc); margin-top:4px; flex:none;}
+  .result .rtext{font-size:12.5px; line-height:1.35; color:var(--text); overflow:hidden;}
+  .result .rtopic{font-size:11px; color:var(--text-3); margin-top:2px;}
   .live{font-size:10.5px; color:var(--text-3); display:inline-flex; align-items:center; gap:5px; margin-left:4px;}
   .live::before{content:""; width:7px; height:7px; border-radius:50%; background:var(--text-3); transition:background .2s, box-shadow .2s;}
   .live.on::before{background:oklch(0.72 0.17 145); box-shadow:0 0 0 4px color-mix(in oklab, oklch(0.72 0.17 145) 25%, transparent);}
@@ -209,6 +219,7 @@
     <div class="tools">
       <input id="search" type="search" placeholder="buscar… (use * e ?)" autocomplete="off" spellcheck="false">
       <button class="theme-toggle" id="theme">Tema claro</button>
+      <div id="results" hidden></div>
     </div>
   </div>
   <div class="legend" id="legend"></div>
@@ -379,7 +390,7 @@ function applySearch(){
   const q = norm(state.query.trim());
   const cv = $('#canvas');
   cv.querySelectorAll('.dim, .hit').forEach(e => e.classList.remove('dim', 'hit'));
-  if (!q) return;
+  if (!q){ updateResults(); return; }
   const test = globTester(q);
   const hitKeys = new Set();
   cv.querySelectorAll('.leaf').forEach(l => {
@@ -393,6 +404,25 @@ function applySearch(){
     if (test(name) || hitKeys.has(t.dataset.key)) t.classList.add('hit');
     else t.classList.add('dim');
   });
+  updateResults();
+}
+
+// lista de resultados clicável (abaixo da busca): cada folha "hit" vira um item que reabre o painel.
+function updateResults(){
+  const box = $('#results');
+  if (!state.query.trim()){ box.hidden = true; box.innerHTML = ''; return; }
+  const hits = [...$('#canvas').querySelectorAll('.leaf.hit')];
+  box.innerHTML = hits.length
+    ? `<div class="rhead">${hits.length} resultado${hits.length > 1 ? 's' : ''}</div>`
+    : '<div class="rhead">nenhum resultado</div>';
+  hits.forEach(l => {
+    const it = document.createElement('div');
+    it.className = 'result b' + l.dataset.branch;
+    it.innerHTML = `<span class="dot"></span><span class="rtext">${esc(l.dataset.text.slice(0, 100))}<div class="rtopic">${esc(l.dataset.topic)}</div></span>`;
+    it.addEventListener('click', () => openPanel(l));
+    box.appendChild(it);
+  });
+  box.hidden = false;
 }
 
 // busca no CONTEÚDO dos arquivos referenciados (server-side): acende nós cujo arquivo casa,
@@ -415,6 +445,7 @@ async function contentSearch(){
     cv.querySelectorAll('.topic').forEach(t => {
       if (keys.has(t.dataset.key)){ t.classList.add('hit'); t.classList.remove('dim'); }
     });
+    updateResults();
   } catch (e) {}
 }
 
