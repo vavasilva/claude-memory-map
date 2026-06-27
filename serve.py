@@ -131,6 +131,10 @@ class Handler(BaseHTTPRequestHandler):
             data = json.dumps(discover(), ensure_ascii=False)
             self._send(200, TEMPLATE.replace("__DATA__", data))
             return
+        if u.path == "/data":
+            self._send(200, json.dumps(discover(), ensure_ascii=False),
+                       "application/json; charset=utf-8")
+            return
         if u.path == "/file":
             target = unquote(parse_qs(u.query).get("p", [""])[0])
             try:

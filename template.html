@@ -71,6 +71,13 @@
     border:1px solid var(--border); background:var(--surface); color:var(--text-2);
     font-family:"Geist",sans-serif; font-size:12.5px; padding:7px 13px; border-radius:9px; cursor:pointer; white-space:nowrap;
   }
+  .tools{display:flex; align-items:center; gap:10px;}
+  #search{font-family:"Geist",sans-serif; font-size:12.5px; padding:7px 12px; border-radius:9px;
+    border:1px solid var(--border); background:var(--surface); color:var(--text); width:170px; outline:none;}
+  #search:focus{border-color:var(--text-3);}
+  .live{font-size:10.5px; color:var(--text-3); display:inline-flex; align-items:center; gap:5px; margin-left:4px;}
+  .live::before{content:""; width:7px; height:7px; border-radius:50%; background:var(--text-3); transition:background .2s, box-shadow .2s;}
+  .live.on::before{background:oklch(0.72 0.17 145); box-shadow:0 0 0 4px color-mix(in oklab, oklch(0.72 0.17 145) 25%, transparent);}
 
   /* ---- Legend ---- */
   .legend{
@@ -137,6 +144,8 @@
   [data-active="1"] [data-branch="1"],
   [data-active="2"] [data-branch="2"]{opacity:1;}
   [data-branch]{transition:opacity .18s ease;}
+  .node.dim{opacity:.1 !important;}
+  .node.hit{outline:2px solid var(--bc); outline-offset:1px;}
 
   /* ---- Painel de leitura ---- */
   .panel{position:fixed; top:0; right:0; height:100%; width:min(440px,94vw); background:var(--surface);
@@ -166,9 +175,13 @@
       <span class="dot"></span>
       <span class="name">memory</span>
       <span class="sub">mapa mental</span>
+      <span class="live" id="live" title="atualiza ao vivo quando os arquivos mudam">ao vivo</span>
     </div>
     <div class="segmented" id="projects"></div>
-    <button class="theme-toggle" id="theme">Tema claro</button>
+    <div class="tools">
+      <input id="search" type="search" placeholder="buscar…" autocomplete="off" spellcheck="false">
+      <button class="theme-toggle" id="theme">Tema claro</button>
+    </div>
   </div>
   <div class="legend" id="legend"></div>
   <div class="mapwrap">
@@ -190,7 +203,7 @@
 <script>
 const PROJECTS = __DATA__;
 const C = {cx:740, rowH:50, blockGap:24, catDX:220, leafDX:410, W:1480};
-const state = {project:0, collapsed:{}, hover:null, theme:'dark'};
+const state = {project:0, collapsed:{}, hover:null, theme:'dark', query:''};
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -237,7 +250,7 @@ function layout(){
           t.items.forEach((it, j) => {
             const leafX = C.cx + sign * C.leafDX, leafY = y + C.rowH / 2 + j * C.rowH;
             nodes.push({type:'leaf', b:source.b, x:leafX, y:leafY, text:it.text, ref:it.ref,
-                        topic:t.name, srcfile:source.file, side: sign > 0 ? 'right' : 'left'});
+                        topic:t.name, srcfile:source.file, topickey:key, side: sign > 0 ? 'right' : 'left'});
             conns.push({b:source.b, x1:catX, y1:catY, x2:leafX, y2:leafY});
           });
         }
@@ -284,12 +297,13 @@ function render(){
     } else {
       html += `<div class="node leaf b${n.b} ${n.side}${n.ref ? ' hasref' : ''}" data-branch="${n.b}"
           style="left:${n.x}px;top:${n.y}px" title="${esc(n.text)}"
-          data-text="${esc(n.text)}" data-topic="${esc(n.topic)}" data-src="${esc(n.srcfile)}"${n.ref ? ` data-ref="${esc(n.ref)}"` : ''}>
+          data-text="${esc(n.text)}" data-topic="${esc(n.topic)}" data-src="${esc(n.srcfile)}" data-topickey="${esc(n.topickey)}"${n.ref ? ` data-ref="${esc(n.ref)}"` : ''}>
           <span class="t">${esc(n.text)}</span>
         </div>`;
     }
   });
   cv.innerHTML = html;
+  applySearch();
 }
 
 function renderProjects(){
@@ -316,6 +330,42 @@ function renderLegend(){
 }
 
 function setActive(b){ $('#canvas').dataset.active = (b == null ? 'none' : b); }
+
+function applySearch(){
+  const q = state.query.trim().toLowerCase();
+  const cv = $('#canvas');
+  cv.querySelectorAll('.dim, .hit').forEach(e => e.classList.remove('dim', 'hit'));
+  if (!q) return;
+  const hitKeys = new Set();
+  cv.querySelectorAll('.leaf').forEach(l => {
+    const hay = (l.dataset.text + ' ' + l.dataset.topic).toLowerCase();
+    if (hay.includes(q)){ l.classList.add('hit'); hitKeys.add(l.dataset.topickey); }
+    else l.classList.add('dim');
+  });
+  cv.querySelectorAll('.topic').forEach(t => {
+    const name = t.querySelector('.tname').textContent.toLowerCase();
+    if (name.includes(q) || hitKeys.has(t.dataset.key)) t.classList.add('hit');
+    else t.classList.add('dim');
+  });
+}
+
+// auto-atualização: poll do /data; só re-renderiza quando o conteúdo muda no servidor
+let lastData = null;
+function flashLive(){ const l = $('#live'); if (!l) return; l.classList.add('on'); setTimeout(() => l.classList.remove('on'), 1200); }
+async function poll(){
+  try{
+    const r = await fetch('/data', {cache: 'no-store'}); if (!r.ok) return;
+    const txt = await r.text();
+    if (lastData === null){ lastData = txt; return; }   // adota baseline (= dados injetados)
+    if (txt === lastData) return;
+    lastData = txt;
+    const data = JSON.parse(txt);
+    PROJECTS.length = 0; data.forEach(p => PROJECTS.push(p));
+    if (state.project >= PROJECTS.length) state.project = 0;
+    renderProjects(); renderLegend(); render();
+    flashLive();
+  } catch (e) { /* servidor fora / arquivo estático: ignora */ }
+}
 
 function openPanel(el){
   $('#psrc').textContent = el.dataset.src;
@@ -375,6 +425,10 @@ function init(){
 
   $('#pclose').addEventListener('click', closePanel);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
+
+  const search = $('#search');
+  search.addEventListener('input', () => { state.query = search.value; applySearch(); });
+  setInterval(poll, 5000);
 }
 init();
 </script>
