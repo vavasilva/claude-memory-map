@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "memory-map",
+  "description": "Interactive mind-map visualizer for Claude Code memory, served on localhost.",
+  "owner": {
+    "name": "Wagner Silva",
+    "url": "https://github.com/vavasilva"
+  },
+  "plugins": [
+    {
+      "name": "memory-map",
+      "description": "Mapa mental interativo das memorias do Claude Code (3 fontes), com clique-pra-ler. Roda em localhost.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

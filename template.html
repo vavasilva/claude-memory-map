@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memory Map — memórias do Claude Code</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Geist:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: oklch(0.185 0.006 265);
+    --surface: oklch(0.225 0.008 265);
+    --surface-2: oklch(0.245 0.008 265);
+    --border: oklch(0.32 0.01 265);
+    --text: oklch(0.95 0.006 265);
+    --text-2: oklch(0.74 0.008 265);
+    --text-3: oklch(0.56 0.008 265);
+    --mono-bg: oklch(0.275 0.01 265);
+  }
+  [data-theme="light"]{
+    --bg: oklch(0.99 0.004 95);
+    --surface: #ffffff;
+    --surface-2: oklch(0.972 0.004 95);
+    --border: oklch(0.91 0.004 260);
+    --text: oklch(0.26 0.012 260);
+    --text-2: oklch(0.5 0.01 260);
+    --text-3: oklch(0.64 0.008 260);
+    --mono-bg: oklch(0.965 0.005 260);
+  }
+  /* cor por fonte (--bc) — default escuro, override no claro */
+  .b0{--bc: oklch(0.75 0.13 300);}
+  .b1{--bc: oklch(0.75 0.13 255);}
+  .b2{--bc: oklch(0.77 0.12 50);}
+  [data-theme="light"] .b0{--bc: oklch(0.6 0.13 300);}
+  [data-theme="light"] .b1{--bc: oklch(0.6 0.13 255);}
+  [data-theme="light"] .b2{--bc: oklch(0.63 0.13 45);}
+
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:"Geist", system-ui, -apple-system, sans-serif;
+    display:flex; flex-direction:column; overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:"Geist Mono", ui-monospace, monospace;}
+
+  /* ---- Toolbar ---- */
+  .toolbar{
+    display:flex; justify-content:space-between; align-items:center; gap:24px;
+    padding:16px 30px; border-bottom:1px solid var(--border);
+    position:sticky; top:0; background:var(--bg); z-index:10;
+  }
+  .wordmark{display:flex; align-items:center; gap:9px;}
+  .wordmark .dot{width:9px; height:9px; border-radius:50%; background:var(--text);}
+  .wordmark .name{font-family:"Geist Mono",monospace; font-weight:600; font-size:15px; letter-spacing:-0.01em;}
+  .wordmark .sub{font-size:13px; color:var(--text-3);}
+
+  .segmented{display:flex; gap:5px; padding:4px; background:var(--surface-2);
+    border:1px solid var(--border); border-radius:11px; flex-wrap:wrap; max-width:60vw; justify-content:center;}
+  .segmented button{
+    font-family:"Geist Mono",monospace; font-size:12.5px; padding:7px 13px;
+    border:none; border-radius:8px; cursor:pointer; background:transparent; color:var(--text-3);
+    transition:background .15s, color .15s; display:flex; gap:7px; align-items:center;
+  }
+  .segmented button .ct{font-size:11px; opacity:.6;}
+  .segmented button.active{background:var(--surface); color:var(--text); box-shadow:0 1px 2px rgba(0,0,0,.1);}
+
+  .theme-toggle{
+    border:1px solid var(--border); background:var(--surface); color:var(--text-2);
+    font-family:"Geist",sans-serif; font-size:12.5px; padding:7px 13px; border-radius:9px; cursor:pointer; white-space:nowrap;
+  }
+
+  /* ---- Legend ---- */
+  .legend{
+    display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+    padding:11px 30px; background:var(--surface-2); border-bottom:1px solid var(--border);
+  }
+  .legend .lbl{font-size:10.5px; text-transform:uppercase; letter-spacing:.08em; font-weight:600; color:var(--text-3);}
+  .chip{
+    display:flex; gap:9px; align-items:center; padding:6px 12px; border-radius:10px;
+    border:1px solid var(--border); background:var(--surface); cursor:default;
+  }
+  .chip .dot{width:9px; height:9px; border-radius:50%; background:var(--bc);}
+  .chip .file{font-family:"Geist Mono",monospace; font-size:12px; color:var(--text);}
+  .chip .role{font-size:11.5px; color:var(--text-3);}
+  .chip .badge{font-family:"Geist Mono",monospace; font-size:11px; color:var(--text-3);
+    background:var(--surface-2); padding:1px 7px; border-radius:999px;}
+  .legend .hint{margin-left:auto; font-size:12px; color:var(--text-3);}
+
+  /* ---- Map ---- */
+  .mapwrap{flex:1; overflow:auto; display:flex; justify-content:center; padding:24px;}
+  .canvas{
+    position:relative; border-radius:16px;
+    background:radial-gradient(ellipse 60% 55% at 50% 50%, color-mix(in oklab, var(--text) 4%, var(--bg)), var(--bg) 70%);
+    flex:0 0 auto;
+  }
+  .conns{position:absolute; top:0; left:0; z-index:1; pointer-events:none;}
+  .conns path{stroke:var(--bc); stroke-width:2; stroke-linecap:round; fill:none;}
+
+  .node{position:absolute; z-index:2;}
+  .root{z-index:3; transform:translate(-50%,-50%);
+    background:var(--text); color:var(--bg); padding:15px 24px; border-radius:16px;
+    box-shadow:0 10px 30px -10px rgba(0,0,0,.45), 0 2px 6px rgba(0,0,0,.2);
+    display:flex; flex-direction:column; align-items:center; gap:2px; text-align:center;}
+  .root .dir{font-family:"Geist Mono",monospace; font-size:10.5px; opacity:.55;}
+  .root .pname{font-weight:600; font-size:17px; letter-spacing:-0.01em;}
+  .root .psub{font-size:11.5px; opacity:.6;}
+
+  .topic{transform:translate(-50%,-50%); cursor:pointer; white-space:nowrap;
+    background:color-mix(in oklab, var(--bc) 13%, var(--surface));
+    border:1.5px solid var(--bc); color:var(--text);
+    padding:8px 13px; border-radius:11px; box-shadow:0 2px 10px -5px rgba(0,0,0,.3);
+    display:flex; gap:8px; align-items:center;}
+  .topic .dot{width:8px; height:8px; border-radius:50%; background:var(--bc);}
+  .topic .tname{font-weight:600; font-size:13.5px; letter-spacing:-0.01em;}
+  .topic .ttag{font-family:"Geist Mono",monospace; font-size:9px; text-transform:uppercase;
+    letter-spacing:.06em; font-weight:600; color:var(--bc);}
+  .topic .tcount{font-family:"Geist Mono",monospace; font-size:11px; color:var(--text-3);}
+  .topic .tcollapsed{font-family:"Geist Mono",monospace; font-size:11px; font-weight:500;
+    color:var(--bg); background:var(--bc); padding:1px 7px; border-radius:999px;}
+
+  .leaf{max-width:212px; background:var(--surface); border:1px solid var(--border);
+    padding:7px 12px; border-radius:9px; box-shadow:0 1px 4px rgba(0,0,0,.06); cursor:pointer;
+    transition:border-color .15s;}
+  .leaf:hover{border-color:var(--bc);}
+  .leaf.right{border-left:3px solid var(--bc); transform:translate(0,-50%);}
+  .leaf.left{border-right:3px solid var(--bc); transform:translate(-100%,-50%); text-align:right;}
+  .leaf .t{font-size:12.5px; line-height:1.4; color:var(--text);
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
+  .leaf.hasref .t::after{content:"  ↗"; color:var(--bc); font-weight:600;}
+
+  /* ---- Highlight ---- */
+  [data-active]:not([data-active="none"]) [data-branch]{opacity:.15;}
+  [data-active="0"] [data-branch="0"],
+  [data-active="1"] [data-branch="1"],
+  [data-active="2"] [data-branch="2"]{opacity:1;}
+  [data-branch]{transition:opacity .18s ease;}
+
+  /* ---- Painel de leitura ---- */
+  .panel{position:fixed; top:0; right:0; height:100%; width:min(440px,94vw); background:var(--surface);
+    border-left:1px solid var(--border); box-shadow:-8px 0 30px -12px rgba(0,0,0,.45);
+    transform:translateX(100%); transition:transform .22s ease; z-index:50;
+    display:flex; flex-direction:column;}
+  .panel.open{transform:none;}
+  .phead{display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+    padding:16px 18px; border-bottom:1px solid var(--border);}
+  .pmeta{font-size:12px; color:var(--text-3); line-height:1.5;}
+  .pmeta b{color:var(--text-2); font-weight:600;}
+  #pclose{border:none; background:transparent; color:var(--text-2); font-size:18px; cursor:pointer;
+    border-radius:8px; padding:2px 9px; line-height:1;}
+  #pclose:hover{background:var(--surface-2);}
+  .pbody{padding:18px; overflow:auto;}
+  #ptext{font-size:14px; line-height:1.6; color:var(--text); margin:0 0 14px;}
+  #pfile{white-space:pre-wrap; word-break:break-word; font-size:11.5px; line-height:1.55;
+    color:var(--text-2); background:var(--mono-bg); border:1px solid var(--border);
+    border-radius:10px; padding:14px; max-width:100%; overflow-x:auto; margin:0;}
+  .pfilelabel{font-size:10.5px; text-transform:uppercase; letter-spacing:.08em; font-weight:600;
+    color:var(--text-3); margin:0 0 8px;}
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <div class="wordmark">
+      <span class="dot"></span>
+      <span class="name">memory</span>
+      <span class="sub">mapa mental</span>
+    </div>
+    <div class="segmented" id="projects"></div>
+    <button class="theme-toggle" id="theme">Tema claro</button>
+  </div>
+  <div class="legend" id="legend"></div>
+  <div class="mapwrap">
+    <div class="canvas" id="canvas" data-active="none"></div>
+  </div>
+
+  <aside class="panel" id="panel" aria-hidden="true">
+    <div class="phead">
+      <div class="pmeta"><span id="psrc" class="mono"></span><br><b id="ptopic"></b></div>
+      <button id="pclose" title="Fechar (Esc)">✕</button>
+    </div>
+    <div class="pbody">
+      <p id="ptext"></p>
+      <p class="pfilelabel" id="pfilelabel" hidden>conteúdo do arquivo</p>
+      <pre id="pfile" class="mono" hidden></pre>
+    </div>
+  </aside>
+
+<script>
+const PROJECTS = __DATA__;
+const C = {cx:740, rowH:50, blockGap:24, catDX:220, leafDX:410, W:1480};
+const state = {project:0, collapsed:{}, hover:null, theme:'dark'};
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function rowsOf(t, key){ return state.collapsed[key] ? 1 : Math.max(t.items.length, 1); }
+
+function layout(){
+  const p = PROJECTS[state.project];
+  const sources = p.sources;
+  const srcInfo = sources.map((s, si) => {
+    let rows = 0;
+    s.topics.forEach((t, ti) => rows += rowsOf(t, si + ':' + ti));
+    return {si, rows};
+  });
+  // distribuição greedy entre os dois lados
+  const order = [...srcInfo].sort((a, b) => b.rows - a.rows);
+  let loadL = 0, loadR = 0; const sideOf = {};
+  for (const s of order){ if (loadL <= loadR){ sideOf[s.si] = 'L'; loadL += s.rows; } else { sideOf[s.si] = 'R'; loadR += s.rows; } }
+  const left  = srcInfo.filter(s => sideOf[s.si] === 'L').sort((a, b) => a.si - b.si);
+  const right = srcInfo.filter(s => sideOf[s.si] === 'R').sort((a, b) => a.si - b.si);
+
+  const sideHeight = list => {
+    let rows = 0, topics = 0;
+    list.forEach(s => sources[s.si].topics.forEach((t, ti) => { rows += rowsOf(t, s.si + ':' + ti); topics++; }));
+    return rows * C.rowH + Math.max(0, topics - 1) * C.blockGap;
+  };
+  const contentH = Math.max(sideHeight(left), sideHeight(right));
+  const H = Math.max(620, contentH + 150);
+  const cy = H / 2;
+
+  const nodes = [], conns = [];
+  const placeSide = (list, sign) => {
+    let y = cy - sideHeight(list) / 2;
+    list.forEach(s => {
+      const source = sources[s.si];
+      source.topics.forEach((t, ti) => {
+        const key = s.si + ':' + ti;
+        const collapsed = !!state.collapsed[key];
+        const blockH = rowsOf(t, key) * C.rowH;
+        const catX = C.cx + sign * C.catDX, catY = y + blockH / 2;
+        nodes.push({type:'topic', b:source.b, x:catX, y:catY, name:t.name, tag:source.tag, count:t.items.length, collapsed, key});
+        conns.push({b:source.b, x1:C.cx, y1:cy, x2:catX, y2:catY});
+        if (!collapsed){
+          t.items.forEach((it, j) => {
+            const leafX = C.cx + sign * C.leafDX, leafY = y + C.rowH / 2 + j * C.rowH;
+            nodes.push({type:'leaf', b:source.b, x:leafX, y:leafY, text:it.text, ref:it.ref,
+                        topic:t.name, srcfile:source.file, side: sign > 0 ? 'right' : 'left'});
+            conns.push({b:source.b, x1:catX, y1:catY, x2:leafX, y2:leafY});
+          });
+        }
+        y += blockH + C.blockGap;
+      });
+    });
+  };
+  placeSide(left, -1); placeSide(right, +1);
+  return {H, cy, nodes, conns, p};
+}
+
+function bez(c){ const mx = (c.x1 + c.x2) / 2; return `M ${c.x1} ${c.y1} C ${mx} ${c.y1}, ${mx} ${c.y2}, ${c.x2} ${c.y2}`; }
+
+function render(){
+  const {H, cy, nodes, conns, p} = layout();
+  const cv = $('#canvas');
+  cv.style.width = C.W + 'px';
+  cv.style.height = H + 'px';
+
+  const total = p.sources.reduce((n, s) => n + s.topics.reduce((m, t) => m + t.items.length, 0), 0);
+
+  let svg = `<svg class="conns" width="${C.W}" height="${H}">`;
+  conns.forEach(c => svg += `<path class="b${c.b}" data-branch="${c.b}" d="${bez(c)}"></path>`);
+  svg += `</svg>`;
+
+  let html = svg;
+  html += `<div class="node root" style="left:${C.cx}px;top:${cy}px">
+      <span class="dir mono">${esc(p.dir)}</span>
+      <span class="pname">${esc(p.name)}</span>
+      <span class="psub">${total} memórias · ${p.sources.length} arquivos</span>
+    </div>`;
+
+  nodes.forEach(n => {
+    if (n.type === 'topic'){
+      const badge = n.collapsed
+        ? `<span class="tcollapsed">+${n.count}</span>`
+        : `<span class="tcount mono">${n.count}</span>`;
+      html += `<div class="node topic b${n.b}" data-branch="${n.b}" data-key="${esc(n.key)}" style="left:${n.x}px;top:${n.y}px">
+          <span class="dot"></span>
+          <span class="tname">${esc(n.name)}</span>
+          <span class="ttag">${esc(n.tag)}</span>
+          ${badge}
+        </div>`;
+    } else {
+      html += `<div class="node leaf b${n.b} ${n.side}${n.ref ? ' hasref' : ''}" data-branch="${n.b}"
+          style="left:${n.x}px;top:${n.y}px" title="${esc(n.text)}"
+          data-text="${esc(n.text)}" data-topic="${esc(n.topic)}" data-src="${esc(n.srcfile)}"${n.ref ? ` data-ref="${esc(n.ref)}"` : ''}>
+          <span class="t">${esc(n.text)}</span>
+        </div>`;
+    }
+  });
+  cv.innerHTML = html;
+}
+
+function renderProjects(){
+  $('#projects').innerHTML = PROJECTS.map((p, i) => {
+    const total = p.sources.reduce((n, s) => n + s.topics.reduce((m, t) => m + t.items.length, 0), 0);
+    return `<button class="${i === state.project ? 'active' : ''}" data-i="${i}">${esc(p.name)}<span class="ct mono">${total}</span></button>`;
+  }).join('');
+}
+
+function renderLegend(){
+  const p = PROJECTS[state.project];
+  let h = `<span class="lbl">${p.sources.length} fontes</span>`;
+  p.sources.forEach(s => {
+    const ct = s.topics.reduce((m, t) => m + t.items.length, 0);
+    h += `<div class="chip b${s.b}" data-branch="${s.b}">
+        <span class="dot"></span>
+        <span class="file mono">${esc(s.file)}</span>
+        <span class="role">${esc(s.role)}</span>
+        <span class="badge">${ct}</span>
+      </div>`;
+  });
+  h += `<span class="hint">clique numa folha pra ler · passe o mouse numa fonte pra destacar · clique num tópico pra recolher</span>`;
+  $('#legend').innerHTML = h;
+}
+
+function setActive(b){ $('#canvas').dataset.active = (b == null ? 'none' : b); }
+
+function openPanel(el){
+  $('#psrc').textContent = el.dataset.src;
+  $('#ptopic').textContent = el.dataset.topic;
+  $('#ptext').textContent = el.dataset.text;
+  const pre = $('#pfile'), lbl = $('#pfilelabel'), ref = el.dataset.ref;
+  if (ref){
+    pre.hidden = false; lbl.hidden = false; pre.textContent = 'carregando…';
+    fetch('/file?p=' + encodeURIComponent(ref))
+      .then(r => r.ok ? r.text() : Promise.reject())
+      .then(t => pre.textContent = t)
+      .catch(() => pre.textContent = '(não foi possível ler o arquivo — disponível só rodando via serve.py)');
+  } else {
+    pre.hidden = true; lbl.hidden = true;
+  }
+  $('#panel').classList.add('open');
+  $('#panel').setAttribute('aria-hidden', 'false');
+}
+function closePanel(){
+  $('#panel').classList.remove('open');
+  $('#panel').setAttribute('aria-hidden', 'true');
+}
+
+function init(){
+  document.documentElement.dataset.theme = state.theme;
+  renderProjects(); renderLegend(); render();
+
+  $('#projects').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    state.project = +b.dataset.i; state.hover = null; state.collapsed = {};
+    renderProjects(); renderLegend(); render(); setActive(null); closePanel();
+  });
+
+  $('#theme').addEventListener('click', () => {
+    state.theme = state.theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = state.theme;
+    $('#theme').textContent = state.theme === 'dark' ? 'Tema claro' : 'Tema escuro';
+  });
+
+  const mapwrap = document.querySelector('.mapwrap');
+  mapwrap.addEventListener('mouseover', e => {
+    const t = e.target.closest('[data-branch]');
+    setActive(t ? t.dataset.branch : null);
+  });
+  mapwrap.addEventListener('mouseleave', () => setActive(null));
+  $('#legend').addEventListener('mouseover', e => {
+    const t = e.target.closest('[data-branch]'); if (t) setActive(t.dataset.branch);
+  });
+  $('#legend').addEventListener('mouseleave', () => setActive(null));
+
+  $('#canvas').addEventListener('click', e => {
+    const leaf = e.target.closest('.leaf');
+    if (leaf){ openPanel(leaf); return; }
+    const topic = e.target.closest('.topic');
+    if (topic){ const k = topic.dataset.key; state.collapsed[k] = !state.collapsed[k]; render(); }
+  });
+
+  $('#pclose').addEventListener('click', closePanel);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
+}
+init();
+</script>
+</body>
+</html>
