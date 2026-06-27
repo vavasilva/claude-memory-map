@@ -18,6 +18,7 @@ Lê ao vivo as três fontes de memória e agrupa por seção de markdown
 ## Recursos
 
 - **Mapa mental** force-free de duas colunas, conectores Bézier — sem dependências (stdlib only).
+- **Busca com curinga** — filtra o mapa em tempo real; `*` = qualquer trecho, `?` = 1 caractere (`tcloud*`, `*api`, `ctx_*index`). Sem curinga, é busca por trecho (substring).
 - **Clique numa folha pra ler** o texto completo no painel lateral; folhas da `MEMORY.md`
   que apontam pra um arquivo (`↗`) carregam o **conteúdo do arquivo** referenciado.
 - **Destaque por fonte** (hover), **recolher/expandir tópico** (clique), **tema claro/escuro**.
