@@ -395,6 +395,29 @@ function applySearch(){
   });
 }
 
+// busca no CONTEÚDO dos arquivos referenciados (server-side): acende nós cujo arquivo casa,
+// somando ao filtro do índice. Debounced no input pra não consultar a cada tecla.
+async function contentSearch(){
+  const q = state.query.trim();
+  if (!q) return;
+  try {
+    const r = await fetch(`/search?p=${state.project}&q=${encodeURIComponent(q)}`, {cache: 'no-store'});
+    if (!r.ok || state.query.trim() !== q) return;        // query mudou -> resposta obsoleta
+    const refs = new Set(await r.json());
+    if (state.query.trim() !== q || !refs.size) return;
+    const cv = $('#canvas'), keys = new Set();
+    cv.querySelectorAll('.leaf').forEach(l => {
+      if (l.dataset.ref && refs.has(l.dataset.ref)){
+        l.classList.add('hit'); l.classList.remove('dim');
+        keys.add(l.dataset.topickey);
+      }
+    });
+    cv.querySelectorAll('.topic').forEach(t => {
+      if (keys.has(t.dataset.key)){ t.classList.add('hit'); t.classList.remove('dim'); }
+    });
+  } catch (e) {}
+}
+
 // auto-atualização: poll do /data; só re-renderiza quando o conteúdo muda no servidor
 let lastData = null;
 function flashLive(){ const l = $('#live'); if (!l) return; l.classList.add('on'); setTimeout(() => l.classList.remove('on'), 1200); }
@@ -620,7 +643,12 @@ function init(){
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
 
   const search = $('#search');
-  search.addEventListener('input', () => { state.query = search.value; applySearch(); });
+  let searchTimer = null;
+  search.addEventListener('input', () => {
+    state.query = search.value; applySearch();                       // índice (instantâneo)
+    clearTimeout(searchTimer);
+    if (state.query.trim()) searchTimer = setTimeout(contentSearch, 200);  // conteúdo (server)
+  });
   setInterval(poll, 5000);
 
   const pfi = $('#pfindinput');

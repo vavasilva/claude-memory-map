@@ -15,6 +15,7 @@ import sys
 import json
 import pathlib
 import functools
+import unicodedata
 import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
@@ -25,6 +26,40 @@ GLOBAL_MD = CLAUDE_DIR / "CLAUDE.md"
 PROJECTS_DIR = CLAUDE_DIR / "projects"
 PLUGIN_DIR = pathlib.Path(__file__).resolve().parent
 TEMPLATE = (PLUGIN_DIR / "template.html").read_text(encoding="utf-8")
+
+
+def search_norm(s):
+    """minúsculas + remove diacríticos — espelha o norm() do front (PT-friendly)."""
+    return "".join(c for c in unicodedata.normalize("NFD", s.lower())
+                   if not unicodedata.combining(c))
+
+
+def search_matcher(q):
+    """substring por padrão; '*'/'?' viram glob não-ancorado. q já vem normalizado."""
+    if "*" in q or "?" in q:
+        body = re.escape(q).replace(r"\*", ".*").replace(r"\?", ".")
+        try:
+            rx = re.compile(body)
+            return lambda s: rx.search(s) is not None
+        except re.error:
+            pass
+    return lambda s: q in s
+
+
+_content_cache = {}
+
+
+def search_file(ref):
+    """conteúdo normalizado de um arquivo de memória, cache por mtime; None se fora de ~/.claude."""
+    rp = pathlib.Path(ref)
+    if not (str(rp).startswith(str(CLAUDE_DIR)) and rp.is_file()):
+        return None
+    mt = rp.stat().st_mtime
+    hit = _content_cache.get(ref)
+    if not hit or hit[0] != mt:
+        hit = (mt, search_norm(rp.read_text(encoding="utf-8", errors="replace")))
+        _content_cache[ref] = hit
+    return hit[1]
 
 
 def clean(s):
@@ -174,6 +209,28 @@ class Handler(BaseHTTPRequestHandler):
                            "text/plain; charset=utf-8")
             except Exception as ex:
                 self._send(500, str(ex), "text/plain; charset=utf-8")
+            return
+        if u.path == "/search":
+            qs = parse_qs(u.query)
+            q = search_norm(unquote(qs.get("q", [""])[0]).strip())
+            try:
+                idx = int(qs.get("p", ["0"])[0])
+            except ValueError:
+                idx = 0
+            hits, projects = [], discover()
+            if q and 0 <= idx < len(projects):
+                match, seen = search_matcher(q), set()
+                for s in projects[idx]["sources"]:
+                    for t in s["topics"]:
+                        for it in t["items"]:
+                            ref = it.get("ref")
+                            if ref and ref not in seen:
+                                seen.add(ref)
+                                body = search_file(ref)
+                                if body is not None and match(body):
+                                    hits.append(ref)
+            self._send(200, json.dumps(hits, ensure_ascii=False),
+                       "application/json; charset=utf-8")
             return
         self._send(404, "not found", "text/plain; charset=utf-8")
 
