@@ -363,6 +363,9 @@ function renderLegend(){
 
 function setActive(b){ $('#canvas').dataset.active = (b == null ? 'none' : b); }
 
+// normaliza p/ busca: minúsculas + remove diacríticos (renovacao casa "renovação") — PT-friendly.
+const norm = s => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+
 // busca do mapa: substring por padrão; '*' (qualquer trecho) e '?' (1 caractere) viram glob
 // não-ancorado, casando em qualquer posição — ex.: auth*token acha "auth…token" no meio do texto.
 function globTester(q){
@@ -373,20 +376,20 @@ function globTester(q){
 }
 
 function applySearch(){
-  const q = state.query.trim().toLowerCase();
+  const q = norm(state.query.trim());
   const cv = $('#canvas');
   cv.querySelectorAll('.dim, .hit').forEach(e => e.classList.remove('dim', 'hit'));
   if (!q) return;
   const test = globTester(q);
   const hitKeys = new Set();
   cv.querySelectorAll('.leaf').forEach(l => {
-    if (test(l.dataset.text.toLowerCase()) || test(l.dataset.topic.toLowerCase())){
+    if (test(norm(l.dataset.text)) || test(norm(l.dataset.topic))){
       l.classList.add('hit'); hitKeys.add(l.dataset.topickey);
     }
     else l.classList.add('dim');
   });
   cv.querySelectorAll('.topic').forEach(t => {
-    const name = t.querySelector('.tname').textContent.toLowerCase();
+    const name = norm(t.querySelector('.tname').textContent);
     if (test(name) || hitKeys.has(t.dataset.key)) t.classList.add('hit');
     else t.classList.add('dim');
   });
