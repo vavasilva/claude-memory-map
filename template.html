@@ -106,6 +106,11 @@
   .chip .badge{font-family:"Geist Mono",monospace; font-size:11px; color:var(--text-3);
     background:var(--surface-2); padding:1px 7px; border-radius:999px;}
   .chip .badge.tok{color:var(--bc); background:color-mix(in oklab, var(--bc) 14%, var(--surface-2));}
+  .chip.heavy{box-shadow:0 0 0 1px var(--bc) inset;}
+  .chip .heavytag{font-family:"Geist Mono",monospace; font-size:9.5px; font-weight:600;
+    text-transform:uppercase; letter-spacing:.05em; color:var(--bc);}
+  .duphint{font-size:11.5px; color:oklch(0.78 0.15 60); display:inline-flex; align-items:center; gap:5px; cursor:help;}
+  [data-theme="light"] .duphint{color:oklch(0.52 0.15 55);}
   .legend .hint{margin-left:auto; font-size:12px; color:var(--text-3);}
 
   /* ---- Map ---- */
@@ -151,6 +156,13 @@
   .leaf .t{font-size:12.5px; line-height:1.4; color:var(--text);
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
   .leaf.hasref .t::after{content:"  ↗"; color:var(--bc); font-weight:600;}
+  /* folha duplicada em 2+ fontes (paga tokens em cada) */
+  .leaf.dup{border-color:color-mix(in oklab, oklch(0.8 0.14 60) 55%, var(--border));}
+  .leaf .dupmark{position:absolute; top:-8px; right:-8px; font-size:10.5px; line-height:1.45;
+    background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:0 4px;
+    color:oklch(0.78 0.15 60); cursor:help;}
+  .leaf.left .dupmark{right:auto; left:-8px;}
+  [data-theme="light"] .leaf .dupmark{color:oklch(0.55 0.15 55);}
 
   /* ---- Highlight ---- */
   [data-active]:not([data-active="none"]) [data-branch]{opacity:.15;}
@@ -261,6 +273,7 @@ function rowsOf(t, key){ return state.collapsed[key] ? 1 : Math.max(t.items.leng
 function layout(){
   const p = PROJECTS[state.project];
   const sources = p.sources;
+  const dupIdx = dupIndex(sources);
   const srcInfo = sources.map((s, si) => {
     let rows = 0;
     s.topics.forEach((t, ti) => rows += rowsOf(t, si + ':' + ti));
@@ -297,8 +310,11 @@ function layout(){
         if (!collapsed){
           t.items.forEach((it, j) => {
             const leafX = C.cx + sign * C.leafDX, leafY = y + C.rowH / 2 + j * C.rowH;
+            const dfiles = dupIdx[dupKey(it.text)];
+            const dup = !!(dfiles && dfiles.size >= 2);
             nodes.push({type:'leaf', b:source.b, x:leafX, y:leafY, text:it.text, ref:it.ref,
-                        topic:t.name, srcfile:source.file, topickey:key, side: sign > 0 ? 'right' : 'left'});
+                        topic:t.name, srcfile:source.file, topickey:key, side: sign > 0 ? 'right' : 'left',
+                        dup, dupWith: dup ? [...dfiles].filter(f => f !== source.file) : null});
             conns.push({b:source.b, x1:catX, y1:catY, x2:leafX, y2:leafY});
           });
         }
@@ -345,10 +361,11 @@ function render(){
           ${badge}
         </div>`;
     } else {
-      html += `<div class="node leaf b${n.b} ${n.side}${n.ref ? ' hasref' : ''}" data-branch="${n.b}"
+      html += `<div class="node leaf b${n.b} ${n.side}${n.ref ? ' hasref' : ''}${n.dup ? ' dup' : ''}" data-branch="${n.b}"
           style="left:${n.x}px;top:${n.y}px" title="${esc(n.text)}"
           data-text="${esc(n.text)}" data-topic="${esc(n.topic)}" data-src="${esc(n.srcfile)}" data-topickey="${esc(n.topickey)}"${n.ref ? ` data-ref="${esc(n.ref)}"` : ''}>
           <span class="t">${esc(n.text)}</span>
+          ${n.dup ? `<span class="dupmark" title="também em ${esc(n.dupWith.join(', '))} — regra duplicada, paga tokens em cada fonte">⧉</span>` : ''}
         </div>`;
     }
   });
@@ -365,17 +382,22 @@ function renderProjects(){
 
 function renderLegend(){
   const p = PROJECTS[state.project];
+  const maxTok = Math.max(0, ...p.sources.map(s => s.tokens || 0));
+  const dupCount = Object.values(dupIndex(p.sources)).filter(set => set.size >= 2).length;
   let h = `<span class="lbl">${p.sources.length} fontes</span>`;
   p.sources.forEach(s => {
     const ct = s.topics.reduce((m, t) => m + t.items.length, 0);
-    h += `<div class="chip b${s.b}" data-branch="${s.b}">
+    const heavy = p.sources.length > 1 && (s.tokens || 0) === maxTok && maxTok > 0;
+    h += `<div class="chip b${s.b}${heavy ? ' heavy' : ''}" data-branch="${s.b}">
         <span class="dot"></span>
         <span class="file mono">${esc(s.file)}</span>
         <span class="role">${esc(s.role)}</span>
         <span class="badge" title="memórias (bullets)">${ct}</span>
         <span class="badge tok" title="tokens estimados que esta fonte injeta na sessão (~chars/4)">~${fmtTok(s.tokens || 0)} tok</span>
+        ${heavy ? `<span class="heavytag" title="fonte mais pesada do projeto — primeira candidata a enxugar">mais pesada</span>` : ''}
       </div>`;
   });
+  if (dupCount) h += `<span class="duphint" title="regras idênticas em mais de uma fonte — você paga os tokens em cada; candidatas a remover de uma delas">⧉ ${dupCount} regra${dupCount > 1 ? 's' : ''} repetida${dupCount > 1 ? 's' : ''} em +1 fonte</span>`;
   h += `<span class="hint">clique numa folha pra ler · passe o mouse numa fonte pra destacar · clique num tópico pra recolher</span>`;
   $('#legend').innerHTML = h;
 }
@@ -384,6 +406,17 @@ function setActive(b){ $('#canvas').dataset.active = (b == null ? 'none' : b); }
 
 // normaliza p/ busca: minúsculas + remove diacríticos (renovacao casa "renovação") — PT-friendly.
 const norm = s => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+
+// duplicatas: mesma regra (folha) em 2+ fontes = você paga os tokens em cada uma.
+const dupKey = s => norm(s).replace(/\s+/g, ' ').trim();
+function dupIndex(sources){
+  const m = {};                                              // chave normalizada -> Set(arquivo-fonte)
+  sources.forEach(s => s.topics.forEach(t => t.items.forEach(it => {
+    const k = dupKey(it.text);
+    if (k.length >= 8) (m[k] = m[k] || new Set()).add(s.file);  // ponytail: ignora folhas curtas (colisão trivial)
+  })));
+  return m;
+}
 
 // busca do mapa: substring por padrão; '*' (qualquer trecho) e '?' (1 caractere) viram glob
 // não-ancorado, casando em qualquer posição — ex.: auth*token acha "auth…token" no meio do texto.
