@@ -18,6 +18,12 @@ Lê ao vivo as três fontes de memória e agrupa por seção de markdown
 ## Recursos
 
 - **Mapa mental** force-free de duas colunas, conectores Bézier — sem dependências (stdlib only).
+- **Orçamento de tokens** — cada fonte mostra quantos tokens (~estimados, `chars/4`) injeta na sessão, e o
+  nó central soma o total. O `~/.claude/CLAUDE.md` entra em **toda** sessão, então dá pra ver o custo fixo
+  do seu contexto e enxugar o que pesa.
+- **Resolve `@imports`** — segue os `@arquivo` do `CLAUDE.md` (recursivo, com guarda de ciclo) e mostra os
+  tópicos importados marcados com `↳`, pra o mapa refletir o que é **realmente** carregado — não só o
+  arquivo de cima. O texto importado também conta no orçamento de tokens.
 - **Busca com curinga** — filtra o mapa em tempo real; `*` = qualquer trecho, `?` = 1 caractere, em qualquer posição. Ex.: `auth*token` casa "auth…token" em qualquer ponto; `te?t` casa "test"/"text". Sem curinga, é busca por trecho (substring). Ignora acentuação — `renovacao` acha "renovação".
 - **Busca no conteúdo** — alcança o texto *dentro* dos arquivos de memória, não só os títulos no índice: um termo que só aparece num arquivo (ex. `v119`) ainda acende o nó. Resolvido no servidor (`/search`, com cache por mtime).
 - **Lista de resultados** — ao buscar, um painel abaixo do campo lista o que casou (índice + conteúdo); clicar num item abre a memória direto no painel lateral, sem caçar o nó aceso no mapa.

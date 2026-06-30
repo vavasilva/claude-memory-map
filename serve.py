@@ -70,18 +70,61 @@ def clean(s):
     return re.sub(r"\s+", " ", s).strip()               # mantém _ (identificadores)
 
 
-def parse_md(path, base=None):
-    """Retorna [{name, items:[{text, ref?}]}]. `base` ativa captura de ref (link .md)."""
+IMPORT_RE = re.compile(r"^\s*@([^\s`]+)")                # @path no início da linha = import do Claude Code
+
+
+def resolve_import(spec, base_dir):
+    """Resolve um `@path` (~, absoluto ou relativo ao arquivo). Path de arquivo existente ou None."""
+    spec = spec.strip().rstrip(".,;:)")                  # ponytail: tolera pontuação encostada
+    try:
+        if spec.startswith("~"):
+            p = pathlib.Path(spec).expanduser()
+        elif spec.startswith("/"):
+            p = pathlib.Path(spec)
+        else:
+            p = base_dir / spec
+        p = p.resolve()
+    except Exception:
+        return None
+    return p if p.is_file() else None
+
+
+def parse_md(path, base=None, _seen=None, _depth=0):
+    """Retorna (topics, chars). topics = [{name, items:[{text, ref?}], imp?}]; chars = total
+    de caracteres CARREGADOS. `base` ativa captura de ref (link .md). Expande os `@imports` do
+    Claude Code (recursivo, profundidade <= 5, guarda de ciclo): os tópicos importados ganham
+    `imp` (o spec escrito) e seus chars somam no total — esse texto também entra no contexto."""
     p = pathlib.Path(path).expanduser()
-    if not p.exists():
-        return []
+    if _seen is None:
+        _seen = set()
+    try:
+        rp = p.resolve()
+    except Exception:
+        return [], 0
+    if not p.exists() or rp in _seen:                    # ciclo / já contado
+        return [], 0
+    _seen.add(rp)
+    text = p.read_text(encoding="utf-8", errors="replace")
+    chars = len(text)
     topics, cur, fence = [], None, False
-    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+    for line in text.splitlines():
         if line.lstrip().startswith("```"):
             fence = not fence
             continue
         if fence:
             continue
+        if _depth < 5:                                   # @import (fora de fence)
+            mi = IMPORT_RE.match(line)
+            if mi:
+                imp = resolve_import(mi.group(1), p.parent)
+                if imp is not None:
+                    sub_topics, sub_chars = parse_md(imp, None, _seen, _depth + 1)
+                    chars += sub_chars
+                    for t in sub_topics:
+                        t.setdefault("imp", mi.group(1))
+                    topics.extend(sub_topics)
+                cur = None
+                continue
         h = re.match(r"^(#{2,3})\s+(.*\S)", line)        # ## ou ### = tópico
         if h:
             cur = {"name": clean(h.group(2)), "items": []}
@@ -100,12 +143,13 @@ def parse_md(path, base=None):
                     if ref.exists():
                         item["ref"] = str(ref)
             cur["items"].append(item)
-    return [t for t in topics if t["items"]]
+    return [t for t in topics if t["items"]], chars
 
 
 def make_source(b, file_label, role, tag, path, base=None):
+    topics, chars = parse_md(path, base)
     return {"b": b, "file": file_label, "role": role, "tag": tag,
-            "topics": parse_md(path, base)}
+            "topics": topics, "chars": chars, "tokens": round(chars / 4)}  # ponytail: ~chars/4 (sem tiktoken)
 
 
 def enc_path(p):
