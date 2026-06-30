@@ -1,6 +1,6 @@
 {
   "name": "memory-map",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Visualiza as memórias do Claude Code (CLAUDE.md global, CLAUDE.md do projeto e MEMORY.md) como um mapa mental interativo servido em localhost.",
   "author": {
     "name": "Wagner Silva",

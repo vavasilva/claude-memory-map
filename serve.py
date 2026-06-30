@@ -219,6 +219,71 @@ def discover():
     return projects
 
 
+# ---- Relatório no terminal (--report): orçamento de contexto sem abrir o navegador ----
+def fmt_tok(n):
+    """Formata tokens: 1234 -> '1.2k', 12345 -> '12k' (espelha o fmtTok do front)."""
+    if n < 1000:
+        return str(n)
+    if n < 10000:
+        return f"{n / 1000:.1f}k"
+    return f"{round(n / 1000)}k"
+
+
+def current_project():
+    """Fontes do projeto do cwd (mesma composição que o discover() dá ao atual)."""
+    cwd = pathlib.Path.cwd().resolve()
+    sources = [make_source(0, "~/.claude/CLAUDE.md", "global do usuário", "user", GLOBAL_MD)]
+    if (cwd / "CLAUDE.md").exists():
+        sources.append(make_source(1, "./CLAUDE.md", "projeto / time", "claude", cwd / "CLAUDE.md"))
+    mem = PROJECTS_DIR / enc_path(cwd) / "memory" / "MEMORY.md"
+    if mem.exists():
+        sources.append(make_source(2, "./MEMORY.md", "acumulada pelo agente", "memory", mem, base=mem.parent))
+    return {"name": cwd.name, "dir": str(cwd).replace(str(HOME), "~"), "sources": sources}
+
+
+def dup_index(sources):
+    """Folhas cujo texto normalizado aparece em 2+ fontes (espelha o dupIndex do front)."""
+    m = {}
+    for s in sources:
+        for t in s["topics"]:
+            for it in t["items"]:
+                k = re.sub(r"\s+", " ", search_norm(it["text"])).strip()
+                if len(k) >= 8:                                  # ignora folhas curtas (colisão trivial)
+                    e = m.setdefault(k, {"files": set(), "text": it["text"]})
+                    e["files"].add(s["file"])
+    return {k: e for k, e in m.items() if len(e["files"]) >= 2}
+
+
+def print_report(p=None):
+    """Imprime o orçamento de contexto do projeto no terminal."""
+    p = p or current_project()
+    sources = p["sources"]
+    total = sum(s["tokens"] for s in sources)
+    max_tok = max((s["tokens"] for s in sources), default=0)
+    bullets = sum(len(t["items"]) for s in sources for t in s["topics"])
+    w = max((len(s["file"]) for s in sources), default=10)
+
+    print("\nMemory Map — orçamento de contexto")
+    print(f"projeto: {p['name']}  ({p['dir']})\n")
+    for i, s in enumerate(sorted(sources, key=lambda s: -s["tokens"])):
+        nb = sum(len(t["items"]) for t in s["topics"])
+        bar = "█" * (round(18 * s["tokens"] / max_tok) if max_tok else 0)
+        heavy = "  ← mais pesada" if i == 0 and max_tok and len(sources) > 1 else ""
+        print(f"  {s['file']:<{w}}  {bar:<18}  ~{fmt_tok(s['tokens']):>5} tok   {nb} bullets · {len(s['topics'])} tópicos{heavy}")
+    print(f"  {'':<{w}}  {'':<18}  {'─' * 11}")
+    print(f"  {'total':<{w}}  {'':<18}  ~{fmt_tok(total):>5} tok   {bullets} bullets · {len(sources)} fontes\n")
+
+    dups = dup_index(sources)
+    if dups:
+        print(f"⧉ {len(dups)} regra(s) duplicada(s) em 2+ fontes — você paga os tokens em cada:")
+        for e in sorted(dups.values(), key=lambda e: -len(e["files"])):
+            txt = e["text"] if len(e["text"]) <= 72 else e["text"][:71] + "…"
+            print(f"  • {txt}\n      em: {', '.join(sorted(e['files']))}")
+    else:
+        print("✓ nenhuma regra duplicada entre fontes.")
+    print()
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -280,7 +345,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    start = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
+    if "--report" in sys.argv[1:]:
+        print_report()
+        return
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    start = int(args[0]) if args else 8765
     srv = None
     port = start
     for p in range(start, start + 12):
