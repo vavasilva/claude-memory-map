@@ -4,7 +4,7 @@ Visualizador **mapa mental** das memórias do Claude Code. Plugin que sobe um se
 em `localhost` e mostra, num grafo interativo e bonito, **de onde vem cada instrução**
 que o agente carrega num projeto.
 
-![Memory Map — mapa mental das memórias do Claude Code](docs/screenshot-v2.png)
+![Memory Map — mapa mental das memórias do Claude Code](docs/screenshot-v3.png)
 
 Lê ao vivo as três fontes de memória e agrupa por seção de markdown
 (cada `##`/`###` vira um **tópico**, cada bullet vira uma **folha**):
@@ -65,7 +65,8 @@ python3 /caminho/para/claude-memory-map/serve.py
 
 - `serve.py` — servidor `http.server` (stdlib). Detecta o projeto atual pelo diretório de
   trabalho, descobre os demais via `~/.claude/projects/*/memory/MEMORY.md` (recuperando o
-  caminho real de cada repo pelo `cwd` gravado nos transcripts `.jsonl`), parseia e serve.
+  caminho real de cada repo pelo `cwd` gravado nos transcripts `.jsonl`), parseia (seguindo os
+  `@imports` do `CLAUDE.md` e contando os tokens de cada fonte) e serve.
   O endpoint `/file` só entrega arquivos dentro de `~/.claude` (lê o conteúdo das folhas da memória).
 - `template.html` — o design (markup + layout + interações). O `serve.py` injeta os dados no
   lugar de `__DATA__` a cada request.
@@ -77,6 +78,8 @@ python3 /caminho/para/claude-memory-map/serve.py
   caem pro fallback (global + `MEMORY.md` apenas).
 - Requer navegador moderno (`oklch()`, `color-mix()`). Fontes Geist via Google Fonts (cai pro
   system font sem internet).
+- A contagem de tokens é uma **estimativa** (`chars/4`), não a do tokenizer real do modelo —
+  serve pra comparar o peso relativo entre fontes, não pra bater exato com o uso de contexto.
 
 ## Créditos
 
