@@ -28,8 +28,8 @@ Lê ao vivo as três fontes de memória e agrupa por seção de markdown
   global *e* no `./CLAUDE.md`), o mapa marca a folha com `⧉` (você paga os tokens em cada uma) e a legenda
   conta quantas; a fonte que mais pesa ganha o selo `mais pesada`. O orçamento sai de *informar* pra
   *mostrar o que cortar*.
-- **Relatório no terminal** — `serve.py --report` imprime o orçamento (tokens por fonte, total, fonte mais
-  pesada, regras duplicadas) **sem abrir o navegador**; cabe em script, pre-commit ou CI.
+- **Relatório no terminal** (`/memory-map:report`) — imprime o orçamento (tokens por fonte, total, fonte
+  mais pesada, regras duplicadas) **sem abrir o navegador**; cabe em script, pre-commit ou CI.
 - **Busca com curinga** — filtra o mapa em tempo real; `*` = qualquer trecho, `?` = 1 caractere, em qualquer posição. Ex.: `auth*token` casa "auth…token" em qualquer ponto; `te?t` casa "test"/"text". Sem curinga, é busca por trecho (substring). Ignora acentuação — `renovacao` acha "renovação".
 - **Busca no conteúdo** — alcança o texto *dentro* dos arquivos de memória, não só os títulos no índice: um termo que só aparece num arquivo (ex. `v119`) ainda acende o nó. Resolvido no servidor (`/search`, com cache por mtime).
 - **Lista de resultados** — ao buscar, um painel abaixo do campo lista o que casou (índice + conteúdo); clicar num item abre a memória direto no painel lateral, sem caçar o nó aceso no mapa.
@@ -56,6 +56,7 @@ Dentro de um projeto, rode:
 ```
 /memory-map            # porta padrão 8765
 /memory-map 9000       # porta custom
+/memory-map:report     # orçamento no terminal (não abre o navegador)
 ```
 
 Abre `http://localhost:8765` no navegador. Pra parar, mate o processo do servidor.
@@ -69,7 +70,7 @@ python3 /caminho/para/claude-memory-map/serve.py
 
 ### Relatório no terminal
 
-Sem abrir o navegador — bom pra script, pre-commit ou CI:
+No Claude Code: **`/memory-map:report`**. Ou direto (bom pra script, pre-commit ou CI):
 
 ```
 python3 /caminho/para/claude-memory-map/serve.py --report
