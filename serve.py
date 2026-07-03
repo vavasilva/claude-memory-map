@@ -52,7 +52,7 @@ _content_cache = {}
 def search_file(ref):
     """conteúdo normalizado de um arquivo de memória, cache por mtime; None se fora de ~/.claude."""
     rp = pathlib.Path(ref)
-    if not (str(rp).startswith(str(CLAUDE_DIR)) and rp.is_file()):
+    if not (rp.is_relative_to(CLAUDE_DIR) and rp.is_file() and rp.suffix == ".md"):
         return None
     mt = rp.stat().st_mtime
     hit = _content_cache.get(ref)
@@ -284,6 +284,16 @@ def print_report(p=None):
     print()
 
 
+def _host_allowed(host):
+    """Só aceita Host de loopback — barra DNS rebinding (site remoto que resolve p/ 127.0.0.1)."""
+    h = host.strip()
+    if h.startswith("["):                        # IPv6 literal: [::1]:porta
+        h = h[1:h.find("]")] if "]" in h else h
+    elif ":" in h:
+        h = h.rsplit(":", 1)[0]                  # remove :porta
+    return h in ("localhost", "127.0.0.1", "::1")
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -297,9 +307,14 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if not _host_allowed(self.headers.get("Host", "")):
+            self._send(403, "forbidden host", "text/plain; charset=utf-8")
+            return
         u = urlparse(self.path)
         if u.path in ("/", "/index.html"):
-            data = json.dumps(discover(), ensure_ascii=False)
+            # escapa < > / -> conteúdo de memória não fecha o <script> inline (XSS / mapa em branco)
+            data = (json.dumps(discover(), ensure_ascii=False)
+                    .replace("<", "\\u003c").replace(">", "\\u003e").replace("/", "\\u002f"))
             self._send(200, TEMPLATE.replace("__DATA__", data))
             return
         if u.path == "/data":
@@ -310,8 +325,8 @@ class Handler(BaseHTTPRequestHandler):
             target = unquote(parse_qs(u.query).get("p", [""])[0])
             try:
                 rp = pathlib.Path(target).resolve()
-                # segurança: só serve arquivos dentro de ~/.claude
-                if not str(rp).startswith(str(CLAUDE_DIR)) or not rp.is_file():
+                # segurança: só serve .md de memória sob ~/.claude (nega .credentials.json etc.)
+                if not (rp.is_relative_to(CLAUDE_DIR) and rp.is_file() and rp.suffix == ".md"):
                     self._send(403, "forbidden", "text/plain; charset=utf-8")
                     return
                 self._send(200, rp.read_text(encoding="utf-8", errors="replace"),

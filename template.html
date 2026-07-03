@@ -517,7 +517,12 @@ function inlineMd(s){
   const codes = [];
   s = s.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return ' ' + (codes.length - 1) + ' '; });
   s = s.replace(/\[\[([^\]]+)\]\]/g, '<span class="wl">$1</span>');
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, txt, url) => {
+    const sc = url.trim().match(/^([a-z][a-z0-9+.\-]*):/i);   // tem esquema?
+    return sc && !/^(https?|mailto)$/i.test(sc[1])            // esquema barrado (javascript:, data:…)
+      ? txt                                                    // -> texto puro, sem href
+      : '<a href="' + url + '" target="_blank" rel="noopener">' + txt + '</a>';
+  });
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
   s = s.replace(/ (\d+) /g, (_, i) => '<code>' + esc(codes[+i]) + '</code>');
