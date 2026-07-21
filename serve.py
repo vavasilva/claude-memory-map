@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Memory Map — servidor localhost que visualiza as memórias do Claude Code.
+"""Memory Map — servidor localhost que visualiza as memórias dos agentes.
 
-Lê ao vivo as 3 fontes de memória de um projeto:
-  - ~/.claude/CLAUDE.md   (global do usuário)
-  - ./CLAUDE.md           (projeto / time, versionado)
-  - ./MEMORY.md           (acumulada pelo agente)
+Lê ao vivo as fontes de memória de um projeto:
+  - ~/.claude/CLAUDE.md       (global do Claude Code)
+  - ./CLAUDE.md               (projeto / time, versionado — Claude Code)
+  - ./AGENTS.md               (projeto — Codex / OpenCode)
+  - ./MEMORY.md               (acumulada pelo agente)
 agrupa por seção markdown (## ou ###) -> tópico, cada bullet -> folha, e serve um
 mapa mental interativo. Sem dependências além da stdlib.
 
@@ -26,6 +27,10 @@ GLOBAL_MD = CLAUDE_DIR / "CLAUDE.md"
 PROJECTS_DIR = CLAUDE_DIR / "projects"
 PLUGIN_DIR = pathlib.Path(__file__).resolve().parent
 TEMPLATE = (PLUGIN_DIR / "template.html").read_text(encoding="utf-8")
+
+AI_MEMORY_DB = HOME / ".local" / "share" / "ai-memory" / "db" / "memory.sqlite"
+AI_MEMORY_WIKI = HOME / ".local" / "share" / "ai-memory" / "wiki"
+IMPORT_RE = re.compile(r"^\s*@([^\s`]+)")
 
 
 def search_norm(s):
@@ -70,7 +75,7 @@ def clean(s):
     return re.sub(r"\s+", " ", s).strip()               # mantém _ (identificadores)
 
 
-IMPORT_RE = re.compile(r"^\s*@([^\s`]+)")                # @path no início da linha = import do Claude Code
+# IMPORT_RE definido no topo do arquivo
 
 
 def resolve_import(spec, base_dir):
@@ -146,10 +151,28 @@ def parse_md(path, base=None, _seen=None, _depth=0):
     return [t for t in topics if t["items"]], chars
 
 
-def make_source(b, file_label, role, tag, path, base=None):
+def make_source(b, file_label, role, tag, path, base=None, agent=""):
     topics, chars = parse_md(path, base)
-    return {"b": b, "file": file_label, "role": role, "tag": tag,
-            "topics": topics, "chars": chars, "tokens": round(chars / 4)}  # ponytail: ~chars/4 (sem tiktoken)
+    return {"b": b, "file": file_label, "role": role, "tag": tag, "agent": agent,
+            "topics": topics, "chars": chars, "tokens": round(chars / 4)}
+
+
+def claude_combined_source(cwd=None):
+    """Combina ~/.claude/CLAUDE.md + ./CLAUDE.md (projeto) numa única fonte (b=0)."""
+    topics = []
+    chars = 0
+    parts = ["~/.claude/CLAUDE.md"]
+    t, c = parse_md(GLOBAL_MD)
+    topics.extend(t)
+    chars += c
+    if cwd is not None and (cwd / "CLAUDE.md").exists():
+        parts.append("./CLAUDE.md")
+        t, c = parse_md(cwd / "CLAUDE.md")
+        topics.extend(t)
+        chars += c
+    return {"b": 0, "file": " + ".join(parts), "role": "instruções",
+            "tag": "claude", "agent": "Claude Code", "topics": topics, "chars": chars,
+            "tokens": round(chars / 4)}  # ponytail: ~chars/4 (sem tiktoken)
 
 
 def enc_path(p):
@@ -183,10 +206,129 @@ def proj_root(enc):
     return None
 
 
+@functools.lru_cache(maxsize=None)
+def _ai_memory_proj_uuid(cwd):
+    """Consulta o BD do ai-memory pra achar o UUID do projeto pelo nome em .ai-memory.toml."""
+    toml = cwd / ".ai-memory.toml"
+    if not toml.exists():
+        return None
+    try:
+        name = None
+        for line in toml.read_text(encoding="utf-8").splitlines():
+            m = re.match(r'^\s*project\s*=\s*"(.+)"\s*$', line)
+            if m:
+                name = m.group(1)
+                break
+        if not name:
+            return None
+        import sqlite3
+        db = AI_MEMORY_DB
+        if not db.exists():
+            return None
+        with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as conn:
+            row = conn.execute("SELECT hex(id) FROM projects WHERE name = ?", (name,)).fetchone()
+            if row:
+                return row[0]
+    except Exception:
+        return None
+    return None
+
+
+@functools.lru_cache(maxsize=None)
+def _fmt_uuid(hex_str):
+    """019E8544EA8B701297E3E135B44C25D6 -> 019e8544-ea8b-7012-97e3-e135b44c25d6"""
+    h = hex_str.lower()
+    return f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}"
+
+
+def _ai_memory_wiki_dir(cwd):
+    """Retorna o path do diretório wiki do projeto no ai-memory, ou None."""
+    uuid = _ai_memory_proj_uuid(cwd)
+    if not uuid:
+        return None
+    try:
+        import sqlite3
+        db = AI_MEMORY_DB
+        if not db.exists():
+            return None
+        with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as conn:
+            row = conn.execute("SELECT hex(id) FROM workspaces WHERE name = 'default'").fetchone()
+            if not row:
+                return None
+            ws_uuid = _fmt_uuid(row[0])
+    except Exception:
+        return None
+    wd = AI_MEMORY_WIKI / ws_uuid / _fmt_uuid(uuid)
+    return wd if wd.is_dir() else None
+
+
+def ai_memory_briefing_source(cwd):
+    """Agrega páginas pinned + _rules/ do ai-memory como uma fonte virtual.
+    Retorna dict no formato make_source() ou None se não houver dado."""
+    wiki = _ai_memory_wiki_dir(cwd)
+    if not wiki:
+        return None
+
+    pinned_texts = []
+    rules_texts = []
+    rules_dir = wiki / "_rules"
+
+    # Lê páginas pinned: arquivos .md com pinned: true no frontmatter
+    for md in sorted(wiki.rglob("*.md")):
+        if md.is_relative_to(rules_dir) if rules_dir.exists() else False:
+            continue
+        try:
+            raw = md.read_text(encoding="utf-8", errors="replace")
+            if re.search(r"^\s*pinned\s*:\s*true\s*$", raw, re.MULTILINE):
+                # extrai só o frontmatter summary + heading
+                lines = raw.splitlines()
+                title = md.stem
+                for ln in lines:
+                    hm = re.match(r"^#\s+(.*\S)", ln)
+                    if hm:
+                        title = hm.group(1)
+                        break
+                pinned_texts.append(f"- [{title}]({md.relative_to(wiki)})")
+        except Exception:
+            continue
+
+    # Lê _rules/ (todo o conteúdo)
+    if rules_dir.exists():
+        for rf in sorted(rules_dir.glob("*.md")):
+            try:
+                raw = rf.read_text(encoding="utf-8", errors="replace")
+                lines = raw.splitlines()
+                title = rf.stem
+                for ln in lines:
+                    hm = re.match(r"^#\s+(.*\S)", ln)
+                    if hm:
+                        title = hm.group(1)
+                        break
+                rules_texts.append(f"- [{title}]({rf.relative_to(wiki)})")
+            except Exception:
+                continue
+
+    if not pinned_texts and not rules_texts:
+        return None
+
+    # Monta um tópico virtual
+    topics = []
+    chars = 0
+    if pinned_texts:
+        text = "\n".join(pinned_texts)
+        chars += len(text)
+        topics.append({"name": "Páginas pinned", "items": [{"text": t} for t in pinned_texts]})
+    if rules_texts:
+        text = "\n".join(rules_texts)
+        chars += len(text)
+        topics.append({"name": "Regras (_rules/)", "items": [{"text": t} for t in rules_texts]})
+
+    return {"b": 3, "file": "ai-memory briefing", "role": "wiki do projeto",
+            "tag": "aimemory", "agent": "", "topics": topics, "chars": chars,
+            "tokens": round(chars / 4)}
+
+
 def discover():
-    """Monta a lista de projetos. O projeto atual (cwd) vem primeiro. Cada projeto ganha
-    global + CLAUDE.md do repo (quando resolvível) + MEMORY.md. O path real do repo vem do
-    campo `cwd` dos transcripts .jsonl, já que o nome do dir codificado é irreversível."""
     cwd = pathlib.Path.cwd().resolve()
     cwd_enc = enc_path(cwd)
     mems = {}
@@ -205,16 +347,17 @@ def discover():
         else:  # repo não resolvível (sem transcript ou movido): cai no nome do dir codificado
             name = e.split("-Code-")[-1] if "-Code-" in e else e.strip("-").split("-")[-1]
             dirlabel = "~/.claude/projects/" + name
-        sources = [make_source(0, "~/.claude/CLAUDE.md", "global do usuário", "user", GLOBAL_MD)]
-        if root is not None and (root / "CLAUDE.md").exists():
-            sources.append(make_source(1, "./CLAUDE.md", "projeto / time", "claude", root / "CLAUDE.md"))
-        sources.append(make_source(2, "./MEMORY.md", "acumulada pelo agente", "memory", mem, base=mem.parent))
+        sources = [claude_combined_source(root)]
+        if root is not None and (root / "AGENTS.md").exists():
+            sources.append(make_source(1, "./AGENTS.md", "instruções", "agents", root / "AGENTS.md", agent="Codex / OpenCode"))
+        sources.append(make_source(2, "./MEMORY.md", "memória acumulada", "memory", mem, base=mem.parent, agent="Claude Code"))
+        aim = ai_memory_briefing_source(root)
+        if aim:
+            sources.append(aim)
         projects.append({"name": name, "dir": dirlabel, "sources": sources})
 
     if not projects:
-        sources = [make_source(0, "~/.claude/CLAUDE.md", "global do usuário", "user", GLOBAL_MD)]
-        if (cwd / "CLAUDE.md").exists():
-            sources.append(make_source(1, "./CLAUDE.md", "projeto / time", "claude", cwd / "CLAUDE.md"))
+        sources = [claude_combined_source(cwd)]
         projects.append({"name": cwd.name, "dir": str(cwd).replace(str(HOME), "~"), "sources": sources})
     return projects
 
@@ -232,17 +375,23 @@ def fmt_tok(n):
 def current_project():
     """Fontes do projeto do cwd (mesma composição que o discover() dá ao atual)."""
     cwd = pathlib.Path.cwd().resolve()
-    sources = [make_source(0, "~/.claude/CLAUDE.md", "global do usuário", "user", GLOBAL_MD)]
-    if (cwd / "CLAUDE.md").exists():
-        sources.append(make_source(1, "./CLAUDE.md", "projeto / time", "claude", cwd / "CLAUDE.md"))
+    sources = [claude_combined_source(cwd)]
+    if (cwd / "AGENTS.md").exists():
+        sources.append(make_source(1, "./AGENTS.md", "instruções", "agents", cwd / "AGENTS.md", agent="Codex / OpenCode"))
     mem = PROJECTS_DIR / enc_path(cwd) / "memory" / "MEMORY.md"
     if mem.exists():
-        sources.append(make_source(2, "./MEMORY.md", "acumulada pelo agente", "memory", mem, base=mem.parent))
+        sources.append(make_source(2, "./MEMORY.md", "memória acumulada", "memory", mem, base=mem.parent, agent="Claude Code"))
+    aim = ai_memory_briefing_source(cwd)
+    if aim:
+        sources.append(aim)
     return {"name": cwd.name, "dir": str(cwd).replace(str(HOME), "~"), "sources": sources}
 
 
 def dup_index(sources):
-    """Folhas cujo texto normalizado aparece em 2+ fontes (espelha o dupIndex do front)."""
+    """Folhas cujo texto normalizado aparece em 2+ fontes (espelha o dupIndex do front).
+    Marca como `intentional` quando a duplicata é apenas entre CLAUDE.md e AGENTS.md."""
+    CLAUDE_RE = re.compile(r"CLAUDE\.md", re.IGNORECASE)
+    AGENTS_RE = re.compile(r"AGENTS\.md", re.IGNORECASE)
     m = {}
     for s in sources:
         for t in s["topics"]:
@@ -251,7 +400,16 @@ def dup_index(sources):
                 if len(k) >= 8:                                  # ignora folhas curtas (colisão trivial)
                     e = m.setdefault(k, {"files": set(), "text": it["text"]})
                     e["files"].add(s["file"])
-    return {k: e for k, e in m.items() if len(e["files"]) >= 2}
+    res = {}
+    for k, e in m.items():
+        if len(e["files"]) >= 2:
+            fs = e["files"]
+            has_claude = any(CLAUDE_RE.search(f) for f in fs)
+            has_agents = any(AGENTS_RE.search(f) for f in fs)
+            only_agent_files = all(CLAUDE_RE.search(f) or AGENTS_RE.search(f) for f in fs)
+            e["intentional"] = has_claude and has_agents and only_agent_files
+            res[k] = e
+    return res
 
 
 def print_report(p=None):
@@ -274,12 +432,19 @@ def print_report(p=None):
     print(f"  {'total':<{w}}  {'':<18}  ~{fmt_tok(total):>5} tok   {bullets} bullets · {len(sources)} fontes\n")
 
     dups = dup_index(sources)
-    if dups:
-        print(f"⧉ {len(dups)} regra(s) duplicada(s) em 2+ fontes — você paga os tokens em cada:")
-        for e in sorted(dups.values(), key=lambda e: -len(e["files"])):
+    real = {k: v for k, v in dups.items() if not v.get("intentional")}
+    intent = {k: v for k, v in dups.items() if v.get("intentional")}
+    if intent:
+        print(f"ⓘ {len(intent)} regra(s) intencional(is) — mesmo bloco de instruções em CLAUDE.md e AGENTS.md (cada agente lê seu arquivo):")
+        for e in sorted(intent.values(), key=lambda e: -len(e["files"])):
+            txt = e["text"] if len(e["text"]) <= 72 else e["text"][:71] + "…"
+            print(f"  • {txt}")
+    if real:
+        print(f"⧉ {len(real)} regra(s) duplicada(s) em 2+ fontes — você paga os tokens em cada:")
+        for e in sorted(real.values(), key=lambda e: -len(e["files"])):
             txt = e["text"] if len(e["text"]) <= 72 else e["text"][:71] + "…"
             print(f"  • {txt}\n      em: {', '.join(sorted(e['files']))}")
-    else:
+    if not dups:
         print("✓ nenhuma regra duplicada entre fontes.")
     print()
 

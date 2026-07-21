@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Memory Map — memórias do Claude Code</title>
+<title>Memory Map — memórias dos agentes</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Geist:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -31,10 +31,12 @@
   /* cor por fonte (--bc) — default escuro, override no claro */
   .b0{--bc: oklch(0.75 0.13 300);}
   .b1{--bc: oklch(0.75 0.13 255);}
-  .b2{--bc: oklch(0.77 0.12 50);}
+  .b2{--bc: oklch(0.65 0.14 145);}
+  .b3{--bc: oklch(0.77 0.12 50);}
   [data-theme="light"] .b0{--bc: oklch(0.6 0.13 300);}
   [data-theme="light"] .b1{--bc: oklch(0.6 0.13 255);}
-  [data-theme="light"] .b2{--bc: oklch(0.63 0.13 45);}
+  [data-theme="light"] .b2{--bc: oklch(0.5 0.14 145);}
+  [data-theme="light"] .b3{--bc: oklch(0.63 0.13 45);}
 
   *{box-sizing:border-box;}
   html,body{height:100%;margin:0;}
@@ -106,11 +108,15 @@
   .chip .badge{font-family:"Geist Mono",monospace; font-size:11px; color:var(--text-3);
     background:var(--surface-2); padding:1px 7px; border-radius:999px;}
   .chip .badge.tok{color:var(--bc); background:color-mix(in oklab, var(--bc) 14%, var(--surface-2));}
+  .chip .agenttag{font-family:"Geist Mono",monospace; font-size:9.5px; font-weight:600;
+    text-transform:uppercase; letter-spacing:.06em; padding:2px 7px; border-radius:6px;
+    background:var(--surface-2); color:var(--bc); border:1px solid var(--bc);}
   .chip.heavy{box-shadow:0 0 0 1px var(--bc) inset;}
   .chip .heavytag{font-family:"Geist Mono",monospace; font-size:9.5px; font-weight:600;
     text-transform:uppercase; letter-spacing:.05em; color:var(--bc);}
   .duphint{font-size:11.5px; color:oklch(0.78 0.15 60); display:inline-flex; align-items:center; gap:5px; cursor:help;}
   [data-theme="light"] .duphint{color:oklch(0.52 0.15 55);}
+  .duphint.int{color:oklch(0.72 0.17 145);}
   .legend .hint{margin-left:auto; font-size:12px; color:var(--text-3);}
 
   /* ---- Map ---- */
@@ -161,6 +167,7 @@
   .leaf .dupmark{position:absolute; top:-8px; right:-8px; font-size:10.5px; line-height:1.45;
     background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:0 4px;
     color:oklch(0.78 0.15 60); cursor:help;}
+  .leaf .dupmark.int{color:oklch(0.72 0.17 145); border-color:oklch(0.52 0.17 145);}
   .leaf.left .dupmark{right:auto; left:-8px;}
   [data-theme="light"] .leaf .dupmark{color:oklch(0.55 0.15 55);}
 
@@ -168,7 +175,8 @@
   [data-active]:not([data-active="none"]) [data-branch]{opacity:.15;}
   [data-active="0"] [data-branch="0"],
   [data-active="1"] [data-branch="1"],
-  [data-active="2"] [data-branch="2"]{opacity:1;}
+  [data-active="2"] [data-branch="2"],
+  [data-active="3"] [data-branch="3"]{opacity:1;}
   [data-branch]{transition:opacity .18s ease;}
   .node.dim{opacity:.1 !important;}
   .node.hit{outline:2px solid var(--bc); outline-offset:1px;}
@@ -310,11 +318,12 @@ function layout(){
         if (!collapsed){
           t.items.forEach((it, j) => {
             const leafX = C.cx + sign * C.leafDX, leafY = y + C.rowH / 2 + j * C.rowH;
-            const dfiles = dupIdx[dupKey(it.text)];
-            const dup = !!(dfiles && dfiles.size >= 2);
+            const dupEntry = dupIdx[dupKey(it.text)];
+            const dup = !!(dupEntry && dupEntry.files.size >= 2 && !dupEntry.intentional);
+            const dupIntentional = !!(dupEntry && dupEntry.intentional);
             nodes.push({type:'leaf', b:source.b, x:leafX, y:leafY, text:it.text, ref:it.ref,
                         topic:t.name, srcfile:source.file, topickey:key, side: sign > 0 ? 'right' : 'left',
-                        dup, dupWith: dup ? [...dfiles].filter(f => f !== source.file) : null});
+                        dup, dupIntentional, dupWith: (dup || dupIntentional) ? [...dupEntry.files].filter(f => f !== source.file) : null});
             conns.push({b:source.b, x1:catX, y1:catY, x2:leafX, y2:leafY});
           });
         }
@@ -365,6 +374,7 @@ function render(){
           style="left:${n.x}px;top:${n.y}px" title="${esc(n.text)}"
           data-text="${esc(n.text)}" data-topic="${esc(n.topic)}" data-src="${esc(n.srcfile)}" data-topickey="${esc(n.topickey)}"${n.ref ? ` data-ref="${esc(n.ref)}"` : ''}>
           <span class="t">${esc(n.text)}</span>
+          ${n.dupIntentional ? `<span class="dupmark int" title="mesmo bloco em CLAUDE.md e AGENTS.md — cada agente lê seu arquivo, duplicata intencional">ⓘ</span>` : ''}
           ${n.dup ? `<span class="dupmark" title="também em ${esc(n.dupWith.join(', '))} — regra duplicada, paga tokens em cada fonte">⧉</span>` : ''}
         </div>`;
     }
@@ -383,7 +393,9 @@ function renderProjects(){
 function renderLegend(){
   const p = PROJECTS[state.project];
   const maxTok = Math.max(0, ...p.sources.map(s => s.tokens || 0));
-  const dupCount = Object.values(dupIndex(p.sources)).filter(set => set.size >= 2).length;
+  const dupValues = Object.values(dupIndex(p.sources));
+  const dupCount = dupValues.filter(e => e.files.size >= 2 && !e.intentional).length;
+  const intDupCount = dupValues.filter(e => e.intentional).length;
   let h = `<span class="lbl">${p.sources.length} fontes</span>`;
   p.sources.forEach(s => {
     const ct = s.topics.reduce((m, t) => m + t.items.length, 0);
@@ -394,10 +406,13 @@ function renderLegend(){
         <span class="role">${esc(s.role)}</span>
         <span class="badge" title="memórias (bullets)">${ct}</span>
         <span class="badge tok" title="tokens estimados que esta fonte injeta na sessão (~chars/4)">~${fmtTok(s.tokens || 0)} tok</span>
+        ${s.agent ? `<span class="agenttag">${esc(s.agent)}</span>` : ''}
         ${heavy ? `<span class="heavytag" title="fonte mais pesada do projeto — primeira candidata a enxugar">mais pesada</span>` : ''}
       </div>`;
   });
+  if (intDupCount) h += `<span class="duphint int" title="mesmo bloco de instruções nos dois arquivos de agente — cada agente lê seu próprio arquivo; duplicata necessária">ⓘ ${intDupCount} regra${intDupCount > 1 ? 's' : ''} intencional(is) (CLAUDE.md + AGENTS.md)</span>`;
   if (dupCount) h += `<span class="duphint" title="regras idênticas em mais de uma fonte — você paga os tokens em cada; candidatas a remover de uma delas">⧉ ${dupCount} regra${dupCount > 1 ? 's' : ''} repetida${dupCount > 1 ? 's' : ''} em +1 fonte</span>`;
+  if (!dupCount && !intDupCount) {/* nada */}
   h += `<span class="hint">clique numa folha pra ler · passe o mouse numa fonte pra destacar · clique num tópico pra recolher</span>`;
   $('#legend').innerHTML = h;
 }
@@ -408,13 +423,28 @@ function setActive(b){ $('#canvas').dataset.active = (b == null ? 'none' : b); }
 const norm = s => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
 
 // duplicatas: mesma regra (folha) em 2+ fontes = você paga os tokens em cada uma.
+// duplicatas intencionais: entre CLAUDE.md e AGENTS.md (cada agente lê seu arquivo).
 const dupKey = s => norm(s).replace(/\s+/g, ' ').trim();
 function dupIndex(sources){
-  const m = {};                                              // chave normalizada -> Set(arquivo-fonte)
+  const m = {};                                              // chave normalizada -> {files, text, intentional}
   sources.forEach(s => s.topics.forEach(t => t.items.forEach(it => {
     const k = dupKey(it.text);
-    if (k.length >= 8) (m[k] = m[k] || new Set()).add(s.file);  // ponytail: ignora folhas curtas (colisão trivial)
+    if (k.length >= 8) {
+      if (!m[k]) m[k] = {files: new Set(), text: it.text};
+      m[k].files.add(s.file);
+    }
   })));
+  for (const k of Object.keys(m)) {
+    if (m[k].files.size >= 2) {
+      const arr = [...m[k].files];
+      const hasClaude = arr.some(f => /CLAUDE\.md/i.test(f));
+      const hasAgents = arr.some(f => /AGENTS\.md/i.test(f));
+      const onlyAgentFiles = arr.every(f => /CLAUDE\.md/i.test(f) || /AGENTS\.md/i.test(f));
+      m[k].intentional = hasClaude && hasAgents && onlyAgentFiles;
+    } else {
+      m[k].intentional = false;
+    }
+  }
   return m;
 }
 
